@@ -6,7 +6,8 @@ import {
   updateRecord
 } from "./database.js";
 
-import { createId } from "./utils.js";
+import { getAdminUid } from "./auth.js";
+import { normalizeText } from "./utils.js";
 
 const USERS_PATH = "users";
 const ROLES_PATH = "roles";
@@ -16,19 +17,25 @@ const VALID_ROLES = ["admin", "leader", "tester", "member"];
 const TESTER_SPECIALTIES = ["MP", "BR"];
 
 function requireAdmin(actor) {
-  if (!actor?.uid || actor.role !== "admin") {
-    throw new Error("فقط ادمین اجازه مدیریت حساب‌ها را دارد.");
+  if (
+    !actor?.uid ||
+    actor.role !== "admin" ||
+    actor.active !== true ||
+    actor.uid !== getAdminUid()
+  ) {
+    throw new Error("فقط ادمین اصلی اجازه مدیریت حساب‌ها را دارد.");
   }
 }
 
 function validateUid(uid) {
   if (
     typeof uid !== "string" ||
-    uid.length < 10 ||
-    uid.length > 128
+    !/^[A-Za-z0-9_-]{10,128}$/.test(uid)
   ) {
     throw new Error("شناسه کاربر معتبر نیست.");
   }
+
+  return uid;
 }
 
 function validateRole(role) {
@@ -37,9 +44,29 @@ function validateRole(role) {
   }
 }
 
+function validateDisplayName(value, label) {
+  const clean = normalizeText(value || "");
+
+  if (clean.length > 60) {
+    throw new Error(`${label} نمی‌تواند بیشتر از ۶۰ کاراکتر باشد.`);
+  }
+
+  return clean;
+}
+
+function validateSpecialty(role, specialty) {
+  if (
+    role === "tester" &&
+    !TESTER_SPECIALTIES.includes(specialty)
+  ) {
+    throw new Error("تستر باید تخصص MP یا BR داشته باشد.");
+  }
+
+  return role === "tester" ? specialty : null;
+}
+
 async function writeHistory(actor, action, targetUid, details = {}) {
-  await createRecord(HISTORY_PATH, {
-    id: createId(),
+  return createRecord(HISTORY_PATH, {
     action,
     targetUid,
     actorUid: actor.uid,
@@ -48,19 +75,21 @@ async function writeHistory(actor, action, targetUid, details = {}) {
   });
 }
 
-// دریافت اطلاعات حساب
+async function getRole(uid) {
+  return getRecord(`${ROLES_PATH}/${uid}`);
+}
+
+// دریافت اطلاعات یک حساب
 export async function getManagedUser(uid, actor) {
   requireAdmin(actor);
   validateUid(uid);
 
   const [user, role] = await Promise.all([
     getRecord(`${USERS_PATH}/${uid}`),
-    getRecord(`${ROLES_PATH}/${uid}`)
+    getRole(uid)
   ]);
 
-  if (!user && !role) {
-    return null;
-  }
+  if (!user && !role) return null;
 
   return {
     uid,
@@ -81,34 +110,46 @@ export async function getAllManagedUsers(actor) {
   const userMap = new Map();
 
   for (const user of users) {
-    if (user.uid) {
-      userMap.set(user.uid, user);
-    }
-  }
+    const uid = user.uid || user.id;
 
-  for (const role of roles) {
-    if (!role.uid) continue;
+    if (!uid) continue;
 
-    userMap.set(role.uid, {
-      ...(userMap.get(role.uid) || {}),
-      ...role,
-      uid: role.uid
+    userMap.set(uid, {
+      ...user,
+      uid
     });
   }
 
-  return [...userMap.values()];
+  for (const role of roles) {
+    const uid = role.uid || role.id;
+
+    if (!uid) continue;
+
+    userMap.set(uid, {
+      ...(userMap.get(uid) || {}),
+      ...role,
+      uid
+    });
+  }
+
+  return [...userMap.values()].sort((a, b) =>
+    String(a.displayName || "").localeCompare(
+      String(b.displayName || ""),
+      "fa"
+    )
+  );
 }
 
-// ساخت پروفایل مدیریتی برای حساب موجود
-export async function createManagedUserProfile(
-  uid,
-  data,
-  actor
-) {
+// ساخت پروفایل مدیریتی برای حساب احراز هویت‌شده موجود
+export async function createManagedUserProfile(uid, data, actor) {
   requireAdmin(actor);
   validateUid(uid);
 
-  if (!data || typeof data !== "object") {
+  if (
+    !data ||
+    typeof data !== "object" ||
+    Array.isArray(data)
+  ) {
     throw new Error("اطلاعات حساب معتبر نیست.");
   }
 
@@ -124,19 +165,31 @@ export async function createManagedUserProfile(
     throw new Error("ایجاد ادمین دوم از این بخش مجاز نیست.");
   }
 
-  if (
-    data.role === "tester" &&
-    !TESTER_SPECIALTIES.includes(data.specialty)
-  ) {
-    throw new Error("تستر باید تخصص MP یا BR داشته باشد.");
+  const specialty = validateSpecialty(
+    data.role,
+    data.specialty
+  );
+
+  const displayName = validateDisplayName(
+    data.displayName,
+    "نام نمایشی"
+  );
+
+  const gameName = validateDisplayName(
+    data.gameName,
+    "نام بازی"
+  );
+
+  if (!displayName || !gameName) {
+    throw new Error("نام نمایشی و نام بازی الزامی هستند.");
   }
 
   const now = Date.now();
 
   const user = {
     uid,
-    displayName: String(data.displayName || "").trim(),
-    gameName: String(data.gameName || "").trim(),
+    displayName,
+    gameName,
     createdAt: now,
     createdBy: actor.uid
   };
@@ -145,16 +198,20 @@ export async function createManagedUserProfile(
     uid,
     role: data.role,
     active: true,
-    specialty: data.role === "tester" ? data.specialty : null,
+    status: "active",
+    specialty,
     updatedAt: now,
     updatedBy: actor.uid
   };
 
-  await updateRecord(`${USERS_PATH}/${uid}`, user);
-  await updateRecord(`${ROLES_PATH}/${uid}`, role);
+  await Promise.all([
+    updateRecord(`${USERS_PATH}/${uid}`, user),
+    updateRecord(`${ROLES_PATH}/${uid}`, role)
+  ]);
 
   await writeHistory(actor, "create_profile", uid, {
-    role: data.role
+    role: data.role,
+    specialty
   });
 
   return { ...user, ...role };
@@ -175,18 +232,16 @@ export async function changeUserRole(
     throw new Error("ادمین نمی‌تواند نقش حساب خودش را تغییر دهد.");
   }
 
-  if (newRole === "admin") {
-    throw new Error("این سیستم فقط یک ادمین اصلی دارد.");
+  if (uid === getAdminUid() || newRole === "admin") {
+    throw new Error("نقش ادمین اصلی قابل تغییر نیست.");
   }
 
-  if (
-    newRole === "tester" &&
-    !TESTER_SPECIALTIES.includes(specialty)
-  ) {
-    throw new Error("تخصص تستر باید MP یا BR باشد.");
-  }
+  const cleanSpecialty = validateSpecialty(
+    newRole,
+    specialty
+  );
 
-  const current = await getRecord(`${ROLES_PATH}/${uid}`);
+  const current = await getRole(uid);
 
   if (!current) {
     throw new Error("نقش این حساب ثبت نشده است.");
@@ -194,9 +249,13 @@ export async function changeUserRole(
 
   const previousRole = current.role;
 
+  if (previousRole === "admin") {
+    throw new Error("تغییر نقش ادمین اصلی مجاز نیست.");
+  }
+
   await updateRecord(`${ROLES_PATH}/${uid}`, {
     role: newRole,
-    specialty: newRole === "tester" ? specialty : null,
+    specialty: cleanSpecialty,
     updatedAt: Date.now(),
     updatedBy: actor.uid
   });
@@ -204,7 +263,7 @@ export async function changeUserRole(
   await writeHistory(actor, "change_role", uid, {
     previousRole,
     newRole,
-    specialty: newRole === "tester" ? specialty : null
+    specialty: cleanSpecialty
   });
 
   return true;
@@ -220,21 +279,29 @@ export async function setUserActiveStatus(
   requireAdmin(actor);
   validateUid(uid);
 
-  if (uid === actor.uid) {
-    throw new Error("ادمین نمی‌تواند حساب خودش را تعلیق کند.");
+  if (uid === actor.uid || uid === getAdminUid()) {
+    throw new Error("تغییر وضعیت ادمین اصلی مجاز نیست.");
   }
 
   if (typeof active !== "boolean") {
     throw new Error("وضعیت حساب معتبر نیست.");
   }
 
-  const current = await getRecord(`${ROLES_PATH}/${uid}`);
+  const current = await getRole(uid);
 
   if (!current) {
     throw new Error("حساب موردنظر پیدا نشد.");
   }
 
-  const cleanReason = String(reason || "").trim();
+  if (current.role === "admin") {
+    throw new Error("تغییر وضعیت ادمین اصلی مجاز نیست.");
+  }
+
+  const cleanReason = normalizeText(reason || "");
+
+  if (cleanReason.length > 500) {
+    throw new Error("دلیل تغییر وضعیت حداکثر ۵۰۰ حرف است.");
+  }
 
   if (!active && !cleanReason) {
     throw new Error("برای تعلیق حساب باید دلیل ثبت شود.");
@@ -242,6 +309,7 @@ export async function setUserActiveStatus(
 
   await updateRecord(`${ROLES_PATH}/${uid}`, {
     active,
+    status: active ? "active" : "suspended",
     statusReason: active ? "" : cleanReason,
     updatedAt: Date.now(),
     updatedBy: actor.uid
@@ -266,8 +334,21 @@ export async function updateManagedUser(
   requireAdmin(actor);
   validateUid(uid);
 
-  if (!changes || typeof changes !== "object") {
+  if (
+    !changes ||
+    typeof changes !== "object" ||
+    Array.isArray(changes)
+  ) {
     throw new Error("اطلاعات ویرایش معتبر نیست.");
+  }
+
+  const allowedFields = ["displayName", "gameName"];
+  const unknownFields = Object.keys(changes).filter(
+    key => !allowedFields.includes(key)
+  );
+
+  if (unknownFields.length) {
+    throw new Error("فقط نام نمایشی و نام بازی قابل ویرایش هستند.");
   }
 
   const current = await getRecord(`${USERS_PATH}/${uid}`);
@@ -277,24 +358,21 @@ export async function updateManagedUser(
   }
 
   const updates = {};
+  const changedFields = [];
 
-  for (const field of ["displayName", "gameName"]) {
-    if (changes[field] !== undefined) {
-      if (typeof changes[field] !== "string") {
-        throw new Error(`مقدار ${field} معتبر نیست.`);
-      }
+  for (const field of allowedFields) {
+    if (changes[field] === undefined) continue;
 
-      const value = changes[field].trim();
+    const value = validateDisplayName(
+      changes[field],
+      field === "displayName" ? "نام نمایشی" : "نام بازی"
+    );
 
-      if (value.length > 60) {
-        throw new Error("طول نام نمی‌تواند بیشتر از ۶۰ کاراکتر باشد.");
-      }
-
-      updates[field] = value;
-    }
+    updates[field] = value;
+    changedFields.push(field);
   }
 
-  if (Object.keys(updates).length === 0) {
+  if (!changedFields.length) {
     throw new Error("تغییری برای ذخیره وجود ندارد.");
   }
 
@@ -304,7 +382,7 @@ export async function updateManagedUser(
   await updateRecord(`${USERS_PATH}/${uid}`, updates);
 
   await writeHistory(actor, "edit_user", uid, {
-    changedFields: Object.keys(updates)
+    changedFields
   });
 
   return true;
@@ -319,4 +397,5 @@ export async function getUserManagementHistory(actor) {
   return history.sort(
     (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
   );
-        }
+}
+  
