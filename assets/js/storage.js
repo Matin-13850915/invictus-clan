@@ -1,10 +1,14 @@
 
 const PREFIX = "invictus_";
+const MAX_KEY_LENGTH = 100;
+const MAX_VALUE_SIZE = 2 * 1024 * 1024;
 
 function validateKey(key) {
   if (
     typeof key !== "string" ||
-    !/^[a-zA-Z0-9_.-]{1,100}$/.test(key)
+    key.length < 1 ||
+    key.length > MAX_KEY_LENGTH ||
+    !/^[a-zA-Z0-9_.-]+$/.test(key)
   ) {
     throw new Error("کلید ذخیره‌سازی معتبر نیست.");
   }
@@ -24,40 +28,57 @@ function getStorage() {
   }
 }
 
+function serialize(value) {
+  let serialized;
+
+  try {
+    serialized = JSON.stringify(value);
+  } catch {
+    throw new Error("اطلاعات قابل تبدیل به JSON نیست.");
+  }
+
+  if (serialized === undefined) {
+    throw new Error("اطلاعات قابل ذخیره‌سازی نیست.");
+  }
+
+  if (serialized.length > MAX_VALUE_SIZE) {
+    throw new Error("حجم اطلاعات برای ذخیره‌سازی محلی بیش از حد مجاز است.");
+  }
+
+  return serialized;
+}
+
 export function saveLocal(key, value) {
   const storageKey = validateKey(key);
   const storage = getStorage();
+  const serialized = serialize(value);
 
   try {
-    const serialized = JSON.stringify(value);
-
-    if (serialized === undefined) {
-      throw new Error("اطلاعات قابل ذخیره‌سازی نیست.");
-    }
-
     storage.setItem(storageKey, serialized);
     return true;
   } catch (error) {
-    if (error?.name === "QuotaExceededError") {
+    if (
+      error?.name === "QuotaExceededError" ||
+      error?.name === "NS_ERROR_DOM_QUOTA_REACHED"
+    ) {
       throw new Error("فضای ذخیره‌سازی دستگاه پر شده است.");
     }
 
-    throw new Error(
-      error?.message || "ذخیره‌سازی محلی انجام نشد."
-    );
+    throw new Error("ذخیره‌سازی محلی انجام نشد.");
   }
 }
 
 export function readLocal(key, fallback = null) {
-  if (
-    typeof key !== "string" ||
-    !/^[a-zA-Z0-9_.-]{1,100}$/.test(key)
-  ) {
+  let storageKey;
+
+  try {
+    storageKey = validateKey(key);
+  } catch {
     return fallback;
   }
 
   try {
-    const value = getStorage().getItem(PREFIX + key);
+    const value = getStorage().getItem(storageKey);
 
     if (value === null) return fallback;
 
@@ -74,9 +95,10 @@ export function removeLocal(key) {
 }
 
 export function hasLocal(key) {
-  const storageKey = validateKey(key);
+  let storageKey;
 
   try {
+    storageKey = validateKey(key);
     return getStorage().getItem(storageKey) !== null;
   } catch {
     return false;
@@ -130,6 +152,8 @@ export function getLocalSize() {
 }
 
 export function updateLocal(key, updater, fallback = null) {
+  validateKey(key);
+
   if (typeof updater !== "function") {
     throw new Error("تابع به‌روزرسانی معتبر نیست.");
   }
@@ -141,4 +165,3 @@ export function updateLocal(key, updater, fallback = null) {
 
   return updated;
 }
-  
