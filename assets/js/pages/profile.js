@@ -84,7 +84,6 @@ export async function renderProfile(container, user) {
       const profile = await getProfile(user.uid, user) || {};
 
       const page = $("div", "profile-page");
-
       const header = $("section", "card profile-header");
 
       header.append(
@@ -178,16 +177,19 @@ export async function renderProfile(container, user) {
         const get = name =>
           form.elements.namedItem(name)?.value ?? "";
 
+        const levelValue = get("gameLevel").trim();
+
         const changes = {
           displayName: get("displayName"),
           gameName: get("gameName"),
-          gameLevel: get("gameLevel") === ""
-            ? ""
-            : Number(get("gameLevel")),
           telegram: get("telegram"),
           rubika: get("rubika"),
           bio: get("bio")
         };
+
+        if (levelValue !== "") {
+          changes.gameLevel = Number(levelValue);
+        }
 
         save.disabled = true;
 
@@ -239,5 +241,5 @@ export async function renderProfile(container, user) {
   };
 
   await load();
-  }
-           
+}
+  
