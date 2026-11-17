@@ -1,7 +1,8 @@
 
 import {
   createRecord,
-  readData,
+  getRecord,
+  getAllRecords,
   updateData,
   deleteData
 } from "./database.js";
@@ -14,26 +15,37 @@ const WAR_TYPES = ["MP", "BR"];
 const WAR_RESULTS = ["pending", "win", "loss", "draw", "cancelled"];
 
 function requireStaff(actor) {
-  if (
-    !actor?.uid ||
-    !["admin", "leader"].includes(actor.role)
-  ) {
+  if (!actor?.uid || !["admin", "leader"].includes(actor.role)) {
     throw new Error("فقط لیدر و ادمین اجازه مدیریت جنگ‌ها را دارند.");
   }
 }
 
+function validateId(id) {
+  if (
+    typeof id !== "string" ||
+    !id.trim() ||
+    /[.#$/[\]]/.test(id)
+  ) {
+    throw new Error("شناسه جنگ معتبر نیست.");
+  }
+}
+
+function cleanText(value, maxLength) {
+  return normalizeText(String(value ?? "").trim()).slice(0, maxLength);
+}
+
 function validateWar(data) {
-  if (!data || typeof data !== "object") {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
     throw new Error("اطلاعات جنگ معتبر نیست.");
   }
 
-  const opponent = normalizeText(data.opponent);
-  const type = data.type;
+  const opponent = cleanText(data.opponent, 60);
+  const type = String(data.type || "").toUpperCase();
   const date = Number(data.date);
-  const description = normalizeText(data.description || "");
+  const description = cleanText(data.description, 1000);
 
-  if (opponent.length < 2 || opponent.length > 60) {
-    throw new Error("نام کلن حریف باید بین ۲ تا ۶۰ حرف باشد.");
+  if (opponent.length < 2) {
+    throw new Error("نام کلن حریف باید حداقل ۲ حرف باشد.");
   }
 
   if (!WAR_TYPES.includes(type)) {
@@ -44,15 +56,28 @@ function validateWar(data) {
     throw new Error("تاریخ جنگ معتبر نیست.");
   }
 
-  if (description.length > 1000) {
-    throw new Error("توضیحات جنگ حداکثر ۱۰۰۰ حرف است.");
-  }
+  return { opponent, type, date, description };
+}
 
+function normalizeWar(item) {
   return {
-    opponent,
-    type,
-    date,
-    description
+    id: item.id,
+    opponent: item.opponent || "",
+    type: item.type || "",
+    date: Number(item.date) || 0,
+    description: item.description || "",
+    result: item.result || "pending",
+    winner: item.winner || null,
+    participants:
+      item.participants &&
+      typeof item.participants === "object" &&
+      !Array.isArray(item.participants)
+        ? item.participants
+        : {},
+    archived: item.archived === true,
+    createdBy: item.createdBy || "",
+    createdAt: Number(item.createdAt) || 0,
+    updatedAt: Number(item.updatedAt) || 0
   };
 }
 
@@ -60,68 +85,59 @@ export async function createWar(data, actor) {
   requireStaff(actor);
 
   const war = validateWar(data);
+  const now = Date.now();
 
-  return await createRecord(PATH, {
+  return createRecord(PATH, {
     ...war,
     result: "pending",
     participants: {},
     winner: null,
+    archived: false,
     createdBy: actor.uid,
-    createdAt: Date.now(),
-    updatedAt: Date.now()
+    createdAt: now,
+    updatedAt: now
   });
 }
 
 export async function getWars(options = {}) {
-  const data = await readData(PATH);
+  const wars = await getAllRecords(PATH);
 
-  if (!data) return [];
-
-  return Object.entries(data)
-    .map(([id, war]) => ({ id, ...war }))
-    .filter(war => {
-      if (options.type && war.type !== options.type) {
-        return false;
-      }
-
-      if (
-        options.result &&
-        war.result !== options.result
-      ) {
-        return false;
-      }
-
-      if (
-        options.fromDate &&
-        war.date < options.fromDate
-      ) {
-        return false;
-      }
-
-      if (
-        options.toDate &&
-        war.date > options.toDate
-      ) {
-        return false;
-      }
-
-      if (
-        !options.includeArchived &&
-        war.archived === true
-      ) {
-        return false;
-      }
-
-      return true;
-    })
+  return wars
+    .filter(war => options.includeArchived || war.archived !== true)
+    .filter(war => !options.type || war.type === options.type)
+    .filter(war => !options.result || war.result === options.result)
+    .filter(war =>
+      options.fromDate == null ||
+      Number(war.date) >= Number(options.fromDate)
+    )
+    .filter(war =>
+      options.toDate == null ||
+      Number(war.date) <= Number(options.toDate)
+    )
+    .map(normalizeWar)
     .sort((a, b) => b.date - a.date);
+}
+
+export async function getWar(warId) {
+  validateId(warId);
+
+  const war = await getRecord(`${PATH}/${warId}`);
+
+  return war ? normalizeWar(war) : null;
 }
 
 export async function updateWar(warId, data, actor) {
   requireStaff(actor);
+  validateId(warId);
 
-  if (!warId) {
-    throw new Error("شناسه جنگ معتبر نیست.");
+  const existing = await getRecord(`${PATH}/${warId}`);
+
+  if (!existing) {
+    throw new Error("جنگ موردنظر پیدا نشد.");
+  }
+
+  if (existing.archived === true) {
+    throw new Error("جنگ آرشیوشده قابل ویرایش نیست.");
   }
 
   const war = validateWar(data);
@@ -135,30 +151,40 @@ export async function updateWar(warId, data, actor) {
   return true;
 }
 
-export async function setWarResult(
-  warId,
-  result,
-  winner,
-  actor
-) {
+export async function setWarResult(warId, result, winner, actor) {
   requireStaff(actor);
+  validateId(warId);
 
-  if (!warId || !WAR_RESULTS.includes(result)) {
-    throw new Error("اطلاعات نتیجه جنگ معتبر نیست.");
+  if (!WAR_RESULTS.includes(result)) {
+    throw new Error("نتیجه جنگ معتبر نیست.");
   }
 
-  if (result === "win" && !winner) {
+  const existing = await getRecord(`${PATH}/${warId}`);
+
+  if (!existing) {
+    throw new Error("جنگ موردنظر پیدا نشد.");
+  }
+
+  if (existing.archived === true) {
+    throw new Error("نتیجه جنگ آرشیوشده قابل تغییر نیست.");
+  }
+
+  const cleanWinner = result === "win"
+    ? cleanText(winner, 80)
+    : null;
+
+  if (result === "win" && !cleanWinner) {
     throw new Error("نام برنده را مشخص کنید.");
   }
 
+  const now = Date.now();
+
   await updateData(`${PATH}/${warId}`, {
     result,
-    winner: result === "win"
-      ? normalizeText(winner)
-      : null,
+    winner: cleanWinner,
     resultRecordedBy: actor.uid,
-    resultRecordedAt: Date.now(),
-    updatedAt: Date.now()
+    resultRecordedAt: now,
+    updatedAt: now
   });
 
   return true;
@@ -170,15 +196,36 @@ export async function setWarParticipants(
   actor
 ) {
   requireStaff(actor);
+  validateId(warId);
 
-  if (!warId || !Array.isArray(participantUids)) {
+  if (!Array.isArray(participantUids)) {
     throw new Error("فهرست بازیکنان معتبر نیست.");
+  }
+
+  const existing = await getRecord(`${PATH}/${warId}`);
+
+  if (!existing) {
+    throw new Error("جنگ موردنظر پیدا نشد.");
+  }
+
+  if (existing.archived === true) {
+    throw new Error("شرکت‌کنندگان جنگ آرشیوشده قابل تغییر نیستند.");
+  }
+
+  const uniqueUids = [...new Set(participantUids)];
+
+  if (uniqueUids.length > 100) {
+    throw new Error("تعداد شرکت‌کنندگان نمی‌تواند بیشتر از ۱۰۰ نفر باشد.");
   }
 
   const participants = {};
 
-  for (const uid of participantUids) {
-    if (typeof uid !== "string" || !uid.trim()) {
+  for (const uid of uniqueUids) {
+    if (
+      typeof uid !== "string" ||
+      !uid.trim() ||
+      /[.#$/[\]]/.test(uid)
+    ) {
       throw new Error("شناسه یکی از بازیکنان معتبر نیست.");
     }
 
@@ -188,6 +235,7 @@ export async function setWarParticipants(
   await updateData(`${PATH}/${warId}`, {
     participants,
     participantsUpdatedBy: actor.uid,
+    participantsUpdatedAt: Date.now(),
     updatedAt: Date.now()
   });
 
@@ -196,15 +244,39 @@ export async function setWarParticipants(
 
 export async function archiveWar(warId, actor) {
   requireStaff(actor);
+  validateId(warId);
 
-  if (!warId) {
-    throw new Error("شناسه جنگ معتبر نیست.");
+  const existing = await getRecord(`${PATH}/${warId}`);
+
+  if (!existing) {
+    throw new Error("جنگ موردنظر پیدا نشد.");
   }
 
   await updateData(`${PATH}/${warId}`, {
     archived: true,
     archivedBy: actor.uid,
-    archivedAt: Date.now()
+    archivedAt: Date.now(),
+    updatedAt: Date.now()
+  });
+
+  return true;
+}
+
+export async function restoreWar(warId, actor) {
+  requireStaff(actor);
+  validateId(warId);
+
+  const existing = await getRecord(`${PATH}/${warId}`);
+
+  if (!existing) {
+    throw new Error("جنگ موردنظر پیدا نشد.");
+  }
+
+  await updateData(`${PATH}/${warId}`, {
+    archived: false,
+    restoredBy: actor.uid,
+    restoredAt: Date.now(),
+    updatedAt: Date.now()
   });
 
   return true;
@@ -212,12 +284,16 @@ export async function archiveWar(warId, actor) {
 
 export async function deleteWar(warId, actor) {
   requireStaff(actor);
+  validateId(warId);
 
-  if (!warId) {
-    throw new Error("شناسه جنگ معتبر نیست.");
+  const existing = await getRecord(`${PATH}/${warId}`);
+
+  if (!existing) {
+    throw new Error("جنگ موردنظر پیدا نشد.");
   }
 
   await deleteData(`${PATH}/${warId}`);
 
   return true;
-}
+    }
+      
