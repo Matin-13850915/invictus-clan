@@ -1,5 +1,5 @@
 
-import { getAllRankings } from "../rankings.js";
+import { getRankings } from "../rankings.js";
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -10,56 +10,30 @@ function el(tag, className, text) {
   return node;
 }
 
-function createRankingRow(player, index) {
-  const row = el("article", "card ranking-card");
+function createPlayerCard(player, index) {
+  const card = el("article", "card ranking-card");
 
-  const position = el(
-    "span",
-    "ranking-position",
-    `#${index + 1}`
-  );
+  const header = el("div", "ranking-player-info");
 
-  const info = el("div", "ranking-player-info");
-
-  info.append(
-    el("strong", "", player.displayName || player.gameName || "بازیکن"),
-    el("small", "", player.uid || "")
+  header.append(
+    el("strong", "", `رتبه ${index + 1} ـ ${player.displayName || "عضو کلن"}`),
+    el("small", "", `شناسه: ${player.uid}`)
   );
 
   const stats = el("div", "ranking-stats");
 
   stats.append(
-    el("span", "", `امتیاز: ${player.points}`),
+    el("span", "", `امتیاز کل: ${player.points}`),
+    el("span", "", `امتیاز دستی: ${player.manualPoints}`),
+    el("span", "", `امتیاز عملکرد: ${player.automaticPoints}`),
     el("span", "", `برد: ${player.wins}`),
     el("span", "", `باخت: ${player.losses}`),
     el("span", "", `مساوی: ${player.draws}`)
   );
 
-  row.append(position, info, stats);
+  card.append(header, stats);
 
-  return row;
-}
-
-function createFilter(label, options) {
-  const wrapper = el("div", "ranking-filter-group");
-  const select = document.createElement("select");
-
-  select.className = "ranking-filter";
-  select.setAttribute("aria-label", label);
-
-  options.forEach(([value, text]) => {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = text;
-    select.appendChild(option);
-  });
-
-  wrapper.append(
-    el("label", "", label),
-    select
-  );
-
-  return { wrapper, select };
+  return card;
 }
 
 export async function renderRankings(container, user) {
@@ -72,34 +46,32 @@ export async function renderRankings(container, user) {
   );
 
   try {
-    const rankings = await getAllRankings(user);
+    const rankings = await getRankings("current");
 
     const fragment = document.createDocumentFragment();
 
-    const heading = el("section", "card");
-    heading.append(
-      el("h2", "card-title", "رتبه‌بندی INVICTUS"),
-      el("p", "", "جدول امتیازات و عملکرد اعضای کلن")
+    fragment.appendChild(
+      el("section", "card",
+        "جدول رتبه‌بندی اعضای INVICTUS"
+      )
     );
 
-    fragment.appendChild(heading);
+    const sort = document.createElement("select");
+    sort.className = "ranking-filter";
+    sort.setAttribute("aria-label", "ترتیب رتبه‌بندی");
 
-    const filters = el("section", "card ranking-filters");
-
-    const mode = createFilter("نوع رتبه‌بندی", [
-      ["all", "همه"],
-      ["MP", "Multiplayer"],
-      ["BR", "Battle Royale"]
-    ]);
-
-    const sort = createFilter("ترتیب", [
+    [
       ["points", "بیشترین امتیاز"],
       ["wins", "بیشترین برد"],
       ["losses", "کمترین باخت"]
-    ]);
+    ].forEach(([value, label]) => {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      sort.appendChild(option);
+    });
 
-    filters.append(mode.wrapper, sort.wrapper);
-    fragment.appendChild(filters);
+    fragment.appendChild(sort);
 
     const summary = el("p", "ranking-count", "");
     fragment.appendChild(summary);
@@ -107,68 +79,50 @@ export async function renderRankings(container, user) {
     const list = el("div", "rankings-list");
 
     function updateList() {
-      const selectedMode = mode.select.value;
-      const selectedSort = sort.select.value;
+      const sorted = [...rankings];
 
-      const filtered = rankings.filter(player => {
-        if (selectedMode === "all") return true;
-        return player.mode === selectedMode;
-      });
-
-      filtered.sort((a, b) => {
-        if (selectedSort === "wins") {
-          return b.wins - a.wins;
-        }
-
-        if (selectedSort === "losses") {
-          return a.losses - b.losses;
-        }
-
+      sorted.sort((a, b) => {
+        if (sort.value === "wins") return b.wins - a.wins;
+        if (sort.value === "losses") return a.losses - b.losses;
         return b.points - a.points;
       });
 
       list.replaceChildren();
 
-      summary.textContent =
-        `تعداد بازیکنان: ${filtered.length}`;
+      summary.textContent = `تعداد اعضا: ${sorted.length}`;
 
-      if (!filtered.length) {
+      if (!sorted.length) {
         list.appendChild(
-          el("section", "card empty-state", "اطلاعات رتبه‌بندی موجود نیست.")
+          el("section", "card empty-state", "هنوز اطلاعات رتبه‌بندی ثبت نشده است.")
         );
         return;
       }
 
-      filtered.forEach((player, index) => {
-        list.appendChild(createRankingRow(player, index));
+      sorted.forEach((player, index) => {
+        list.appendChild(createPlayerCard(player, index));
       });
     }
 
-    mode.select.addEventListener("change", updateList);
-    sort.select.addEventListener("change", updateList);
-
+    sort.addEventListener("change", updateList);
     updateList();
 
     fragment.appendChild(list);
-    container.replaceChildren(fragment);
 
+    container.replaceChildren(fragment);
   } catch (error) {
     console.error("Rankings loading failed:", error);
 
     const errorCard = el(
       "section",
       "card error-state",
-      "دریافت رتبه‌بندی ناموفق بود. دسترسی دیتابیس را بررسی کنید."
+      "دریافت رتبه‌بندی ناموفق بود."
     );
 
     const retry = el("button", "secondary-button", "تلاش دوباره");
     retry.type = "button";
-    retry.addEventListener("click", () => {
-      renderRankings(container, user);
-    });
+    retry.addEventListener("click", () => renderRankings(container, user));
 
     errorCard.appendChild(retry);
     container.replaceChildren(errorCard);
   }
       }
-            
