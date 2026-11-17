@@ -300,5 +300,4 @@ export function canManageBadges(user) {
 
 export function canManagePointsBalance(user) {
   return isLeaderOrAdmin(user);
-    }
-    
+}
