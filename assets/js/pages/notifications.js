@@ -1,8 +1,9 @@
 
 import {
-  getNotifications,
-  markNotificationRead,
-  markAllNotificationsRead
+  getMyNotifications,
+  markNotificationAsRead,
+  markAllNotificationsAsRead,
+  deleteMyNotification
 } from "../notification-center.js";
 
 const $ = (tag, className = "", text = "") => {
@@ -48,6 +49,7 @@ function notificationTitle(notification) {
     war: "جنگ کلن",
     war_application: "درخواست شرکت در جنگ",
     message: "پیام جدید",
+    support: "پشتیبانی",
     ticket: "تیکت پشتیبانی",
     announcement: "اطلاعیه جدید",
     reward: "فروشگاه جوایز",
@@ -62,7 +64,7 @@ function notificationTitle(notification) {
     "اعلان جدید";
 }
 
-function createNotificationCard(notification, reload) {
+function createNotificationCard(notification, user, reload) {
   const card = $("article",
     notification.read
       ? "card notification-card read"
@@ -85,20 +87,35 @@ function createNotificationCard(notification, reload) {
   card.appendChild(
     $("p", "notification-message",
       notification.message ||
-      notification.body ||
-      notification.description ||
       "اعلان جدیدی برای شما ثبت شده است."
     )
   );
 
+  if (notification.link) {
+    const link = $("a", "notification-link", "مشاهده مرتبط");
+
+    link.href = notification.link;
+    link.target = notification.link.startsWith("https://")
+      ? "_blank"
+      : "_self";
+
+    if (link.target === "_blank") {
+      link.rel = "noopener noreferrer";
+    }
+
+    card.appendChild(link);
+  }
+
+  const actions = $("div", "notification-actions");
+
   if (!notification.read) {
-    card.appendChild(
+    actions.appendChild(
       makeButton(
         "علامت‌گذاری به‌عنوان خوانده‌شده",
         "secondary-button",
         async () => {
           try {
-            await markNotificationRead(notification.id);
+            await markNotificationAsRead(notification.id, user);
             await reload();
           } catch (error) {
             alert(error.message || "به‌روزرسانی اعلان انجام نشد.");
@@ -107,10 +124,31 @@ function createNotificationCard(notification, reload) {
       )
     );
   } else {
-    card.appendChild(
+    actions.appendChild(
       $("small", "notification-read-label", "خوانده‌شده")
     );
   }
+
+  actions.appendChild(
+    makeButton(
+      "حذف از اعلان‌های من",
+      "danger-button",
+      async () => {
+        if (!confirm("این اعلان از فهرست شما حذف شود؟")) {
+          return;
+        }
+
+        try {
+          await deleteMyNotification(notification.id, user);
+          await reload();
+        } catch (error) {
+          alert(error.message || "حذف اعلان انجام نشد.");
+        }
+      }
+    )
+  );
+
+  card.appendChild(actions);
 
   return card;
 }
@@ -135,7 +173,7 @@ export async function renderNotifications(container, user) {
     );
 
     try {
-      const notifications = await getNotifications(user);
+      const notifications = await getMyNotifications(user, 100);
 
       const items = Array.isArray(notifications)
         ? notifications
@@ -151,12 +189,8 @@ export async function renderNotifications(container, user) {
 
       header.append(
         $("h1", "card-title", "مرکز اعلان‌ها"),
-        $("p", "",
-          `تعداد اعلان‌ها: ${items.length}`
-        ),
-        $("p", "",
-          `خوانده‌نشده: ${unread.length}`
-        )
+        $("p", "", `تعداد اعلان‌ها: ${items.length}`),
+        $("p", "", `خوانده‌نشده: ${unread.length}`)
       );
 
       const controls = $("div", "notification-controls");
@@ -180,7 +214,7 @@ export async function renderNotifications(container, user) {
               }
 
               try {
-                await markAllNotificationsRead(user);
+                await markAllNotificationsAsRead(user);
                 await load();
               } catch (error) {
                 alert(error.message || "عملیات انجام نشد.");
@@ -202,17 +236,11 @@ export async function renderNotifications(container, user) {
           )
         );
       } else {
-        items
-          .slice()
-          .sort((a, b) =>
-            Number(b.createdAt || 0) -
-            Number(a.createdAt || 0)
-          )
-          .forEach(notification => {
-            list.appendChild(
-              createNotificationCard(notification, load)
-            );
-          });
+        items.forEach(notification => {
+          list.appendChild(
+            createNotificationCard(notification, user, load)
+          );
+        });
       }
 
       page.appendChild(list);
@@ -235,5 +263,4 @@ export async function renderNotifications(container, user) {
   };
 
   await load();
-    }
-  
+}
