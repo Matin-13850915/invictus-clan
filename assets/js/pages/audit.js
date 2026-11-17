@@ -60,7 +60,10 @@ function formatDate(value) {
 function createAuditCard(item) {
   const card = $("article", "card audit-card");
 
-  const title = ACTION_LABELS[item.action] || item.action || "اقدام ثبت‌شده";
+  const title =
+    ACTION_LABELS[item.action] ||
+    item.action ||
+    "اقدام ثبت‌شده";
 
   card.append(
     $("h3", "audit-title", title),
@@ -89,8 +92,13 @@ function createAuditCard(item) {
     detailsBox.appendChild(summary);
 
     Object.entries(details).forEach(([key, value]) => {
+      const displayValue =
+        value !== null && typeof value === "object"
+          ? JSON.stringify(value)
+          : String(value ?? "—");
+
       detailsBox.appendChild(
-        $("p", "", `${key}: ${String(value ?? "—")}`)
+        $("p", "", `${key}: ${displayValue}`)
       );
     });
 
@@ -191,4 +199,4 @@ export async function renderAudit(container, user) {
 
   await load();
     }
-    
+          
