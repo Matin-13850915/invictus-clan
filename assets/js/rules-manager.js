@@ -10,8 +10,8 @@ const RULES_PATH = "clanRules";
 const ACCEPTANCE_PATH = "ruleAcceptances";
 
 function requireUser(actor) {
-  if (!actor?.uid) {
-    throw new Error("ابتدا وارد حساب خود شوید.");
+  if (!actor?.uid || actor.active !== true) {
+    throw new Error("ابتدا وارد حساب فعال خود شوید.");
   }
 }
 
@@ -20,6 +20,17 @@ function requireStaff(actor) {
 
   if (!["admin", "leader"].includes(actor.role)) {
     throw new Error("فقط لیدر و ادمین اجازه مدیریت قوانین را دارند.");
+  }
+}
+
+function validateId(value, label) {
+  if (
+    typeof value !== "string" ||
+    !value.trim() ||
+    value.length > 128 ||
+    /[.#$/\[\]]/.test(value)
+  ) {
+    throw new Error(`${label} معتبر نیست.`);
   }
 }
 
@@ -41,45 +52,51 @@ function cleanText(value, maxLength) {
 export async function createRulesVersion(data, actor) {
   requireStaff(actor);
 
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("اطلاعات قوانین معتبر نیست.");
+  }
+
   const title = cleanText(data.title, 100);
   const content = cleanText(data.content, 15000);
 
   const current = await getRecord(`${RULES_PATH}/current`);
 
-  const version = current?.version
-    ? current.version + 1
-    : 1;
+  const version = Number(current?.version || 0) + 1;
+  const now = Date.now();
 
   const rule = {
     version,
     title,
     content,
     active: true,
-    createdAt: Date.now(),
+    createdAt: now,
     createdBy: actor.uid
   };
 
-  const historyRecord = await createRecord(
+  const historyId = await createRecord(
     `${RULES_PATH}/history`,
     rule
   );
 
   await updateRecord(`${RULES_PATH}/current`, {
     ...rule,
-    historyId: historyRecord?.id || null
+    historyId
   });
 
-  return rule;
+  return {
+    ...rule,
+    historyId
+  };
 }
 
 // دریافت آخرین نسخه قوانین
 export async function getCurrentRules(actor) {
   requireUser(actor);
 
-  return await getRecord(`${RULES_PATH}/current`);
+  return getRecord(`${RULES_PATH}/current`);
 }
 
-// ثبت پذیرش قوانین
+// ثبت پذیرش نسخه فعلی قوانین
 export async function acceptCurrentRules(actor) {
   requireUser(actor);
 
@@ -95,8 +112,15 @@ export async function acceptCurrentRules(actor) {
     acceptedAt: Date.now()
   };
 
+  // آخرین پذیرش عضو
   await updateRecord(
-    `${ACCEPTANCE_PATH}/${actor.uid}`,
+    `${ACCEPTANCE_PATH}/${actor.uid}/current`,
+    acceptance
+  );
+
+  // سابقه مستقل پذیرش‌ها
+  await createRecord(
+    `${ACCEPTANCE_PATH}/${actor.uid}/history`,
     acceptance
   );
 
@@ -112,19 +136,45 @@ export async function hasAcceptedCurrentRules(actor) {
   if (!rules?.version) return true;
 
   const acceptance = await getRecord(
-    `${ACCEPTANCE_PATH}/${actor.uid}`
+    `${ACCEPTANCE_PATH}/${actor.uid}/current`
   );
 
-  return acceptance?.version === rules.version;
+  return Number(acceptance?.version) === Number(rules.version);
 }
 
-// مشاهده تاریخچه نسخه‌ها
+// دریافت سابقه پذیرش قوانین توسط یک عضو
+export async function getMyRulesAcceptanceHistory(actor) {
+  requireUser(actor);
+
+  const history = await getAllRecords(
+    `${ACCEPTANCE_PATH}/${actor.uid}/history`
+  );
+
+  return history.sort(
+    (a, b) => (Number(b.acceptedAt) || 0) -
+      (Number(a.acceptedAt) || 0)
+  );
+}
+
+// مشاهده تاریخچه نسخه‌های قوانین
 export async function getRulesHistory(actor) {
   requireStaff(actor);
 
   const history = await getAllRecords(`${RULES_PATH}/history`);
 
   return history.sort(
-    (a, b) => (b.version || 0) - (a.version || 0)
+    (a, b) => (Number(b.version) || 0) -
+      (Number(a.version) || 0)
   );
 }
+
+// دریافت تاریخچه پذیرش همه اعضا؛ فقط ادمین
+export async function getAllRulesAcceptanceHistory(actor) {
+  requireStaff(actor);
+
+  if (actor.role !== "admin") {
+    throw new Error("مشاهده تاریخچه همه اعضا مخصوص ادمین است.");
+  }
+
+  return getAllRecords(ACCEPTANCE_PATH);
+    }
