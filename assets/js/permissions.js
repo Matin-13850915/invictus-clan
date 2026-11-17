@@ -18,6 +18,11 @@ const ALL_ROLES = Object.freeze([
   ROLES.MEMBER
 ]);
 
+const MANAGEMENT_ROLES = Object.freeze([
+  ROLES.ADMIN,
+  ROLES.LEADER
+]);
+
 function validUser(user) {
   return Boolean(
     user &&
@@ -28,10 +33,12 @@ function validUser(user) {
 }
 
 function isActiveUser(user) {
-  return validUser(user) &&
+  return (
+    validUser(user) &&
     user.active === true &&
     user.status !== "banned" &&
-    user.status !== "suspended";
+    user.status !== "suspended"
+  );
 }
 
 export function hasRole(user, role) {
@@ -55,7 +62,11 @@ export function isMember(user) {
 }
 
 export function isStaff(user) {
-  return isAdmin(user) || isLeader(user) || isTester(user);
+  return (
+    isAdmin(user) ||
+    isLeader(user) ||
+    isTester(user)
+  );
 }
 
 export function isLeaderOrAdmin(user) {
@@ -75,7 +86,13 @@ export function canAccessPage(user, page) {
 
   const access = {
     home: ALL_ROLES,
-    applications: ["admin", "leader", "tester"],
+
+    applications: [
+      ROLES.ADMIN,
+      ROLES.LEADER,
+      ROLES.TESTER
+    ],
+
     members: ALL_ROLES,
     announcements: ALL_ROLES,
     wars: ALL_ROLES,
@@ -88,15 +105,20 @@ export function canAccessPage(user, page) {
     seasons: ALL_ROLES,
     rewards: ALL_ROLES,
     tickets: ALL_ROLES,
-    archive: ["admin", "leader"],
-    statistics: ["admin", "leader"],
-    staff: ALL_ROLES,
+
+    archive: MANAGEMENT_ROLES,
+    statistics: MANAGEMENT_ROLES,
+    audit: MANAGEMENT_ROLES,
+    staff: MANAGEMENT_ROLES,
+
+    activity: ALL_ROLES,
     rules: ALL_ROLES,
     settings: ALL_ROLES,
     profile: ALL_ROLES,
     notifications: ALL_ROLES,
     support: ALL_ROLES,
-    admin: ["admin"]
+
+    admin: [ROLES.ADMIN]
   };
 
   const allowedRoles = access[page];
@@ -120,9 +142,13 @@ export function canManageApplications(user) {
 }
 
 export function canReviewAssignedApplication(user, application) {
-  if (!isActiveUser(user) || !application) return false;
+  if (!isActiveUser(user) || !application) {
+    return false;
+  }
 
-  if (isLeaderOrAdmin(user)) return true;
+  if (isLeaderOrAdmin(user)) {
+    return true;
+  }
 
   return (
     isTester(user) &&
@@ -212,9 +238,13 @@ export function canApproveWarApplications(user) {
 }
 
 export function canManageSupportTickets(user, ticket) {
-  if (!isActiveUser(user) || !ticket) return false;
+  if (!isActiveUser(user) || !ticket) {
+    return false;
+  }
 
-  if (isLeaderOrAdmin(user)) return true;
+  if (isLeaderOrAdmin(user)) {
+    return true;
+  }
 
   if (isTester(user)) {
     return ticket.assignedTesterUid === user.uid;
@@ -240,9 +270,13 @@ export function canDeleteAnyChatMessage(user) {
 }
 
 export function canEditOwnChatMessage(user, message) {
-  if (!isActiveUser(user) || !message) return false;
+  if (!isActiveUser(user) || !message) {
+    return false;
+  }
 
-  if (message.uid !== user.uid) return false;
+  if (message.uid !== user.uid) {
+    return false;
+  }
 
   const createdAt = Number(message.createdAt);
 
@@ -278,5 +312,5 @@ export function canViewOwnData(user, targetUid) {
     isActiveUser(user) &&
     user.uid === targetUid
   );
-      }
-      
+    }
+    
