@@ -688,5 +688,5 @@ export async function withdrawApplication(
 
 export function getApplicationStatusLabel(status) {
   return STATUS_LABELS[status] || "وضعیت نامشخص";
-      }
+ }
   
