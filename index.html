@@ -1,0 +1,219 @@
+
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#080b13">
+  <meta name="description" content="INVICTUS CODM Clan Management System">
+  <title>łK¹・INVICTUS | Clan Management</title>
+
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+
+<body>
+  <div class="app-background">
+
+    <header class="topbar">
+      <a href="#home" class="brand" aria-label="INVICTUS Home">
+        <span class="brand-mark">łK¹</span>
+        <span class="brand-name">
+          <strong>INVICTUS</strong>
+          <small>CODM CLAN MANAGEMENT</small>
+        </span>
+      </a>
+
+      <div class="topbar-actions">
+        <span id="connection-status" class="connection-status">
+          در حال اتصال...
+        </span>
+
+        <button id="mobile-menu-toggle"
+                class="icon-button"
+                type="button"
+                aria-label="باز کردن منو"
+                hidden>
+          ☰
+        </button>
+      </div>
+    </header>
+
+    <main id="app-root">
+
+      <!-- LOGIN -->
+      <section id="login-view" class="auth-layout">
+
+        <div class="hero-panel">
+          <span class="eyebrow">WELCOME TO THE CLAN</span>
+
+          <h1>
+            łK¹・<span>INVICTUS</span>
+          </h1>
+
+          <p>
+            سیستم مدیریت هوشمند و یکپارچه کلن کالاف دیوتی موبایل
+          </p>
+
+          <div class="hero-features">
+            <div>
+              <strong>01</strong>
+              <span>مدیریت اعضا</span>
+            </div>
+
+            <div>
+              <strong>02</strong>
+              <span>جنگ‌ها و رقابت‌ها</span>
+            </div>
+
+            <div>
+              <strong>03</strong>
+              <span>رتبه‌بندی و امتیازات</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="auth-card">
+          <div class="auth-heading">
+            <span class="eyebrow">SECURE ACCESS</span>
+            <h2>ورود به حساب</h2>
+            <p>برای ورود، اطلاعات حساب خود را وارد کنید.</p>
+          </div>
+
+          <form id="login-form">
+
+            <label for="login-email">ایمیل حساب</label>
+            <input
+              id="login-email"
+              name="email"
+              type="email"
+              placeholder="example@email.com"
+              autocomplete="username"
+              required
+            >
+
+            <label for="login-password">رمز عبور</label>
+            <input
+              id="login-password"
+              name="password"
+              type="password"
+              placeholder="رمز عبور"
+              autocomplete="current-password"
+              required
+            >
+
+            <button id="login-submit" type="submit">
+              ورود به پنل
+            </button>
+
+            <button id="forgot-password"
+                    class="text-button"
+                    type="button">
+              فراموشی رمز عبور؟
+            </button>
+
+            <p id="login-message"
+               class="form-message"
+               role="status"
+               aria-live="polite"></p>
+          </form>
+
+          <div class="auth-note">
+            ایجاد حساب فقط پس از تأیید درخواست عضویت امکان‌پذیر است.
+          </div>
+        </div>
+      </section>
+
+      <!-- APPLICATION -->
+      <section id="dashboard-view" class="dashboard-layout" hidden>
+
+        <aside id="sidebar" class="sidebar">
+
+          <div class="sidebar-brand">
+            <span class="brand-mark">łK¹</span>
+            <div>
+              <strong>INVICTUS</strong>
+              <small>CONTROL PANEL</small>
+            </div>
+          </div>
+
+          <div class="current-user">
+            <div id="user-avatar" class="avatar">I</div>
+            <div>
+              <strong id="user-display-name">کاربر</strong>
+              <small id="user-role">در حال بررسی نقش...</small>
+            </div>
+          </div>
+
+          <nav id="main-nav" class="main-nav"
+               aria-label="منوی اصلی">
+
+            <a href="#home" data-page="home">خانه</a>
+            <a href="#applications" data-page="applications">درخواست‌های عضویت</a>
+            <a href="#members" data-page="members">اعضای کلن</a>
+            <a href="#announcements" data-page="announcements">اطلاعیه‌ها</a>
+            <a href="#wars" data-page="wars">جنگ‌ها</a>
+            <a href="#rankings" data-page="rankings">رتبه‌بندی</a>
+            <a href="#chat" data-page="chat">اتاق‌های چت</a>
+            <a href="#forum" data-page="forum">انجمن</a>
+            <a href="#messages" data-page="messages">پیام خصوصی</a>
+            <a href="#teams" data-page="teams">تیم‌ها</a>
+            <a href="#tournaments" data-page="tournaments">مسابقات</a>
+            <a href="#seasons" data-page="seasons">فصل‌ها</a>
+            <a href="#rewards" data-page="rewards">جوایز و فروشگاه</a>
+            <a href="#tickets" data-page="tickets">پشتیبانی</a>
+            <a href="#archive" data-page="archive">آرشیو</a>
+            <a href="#statistics" data-page="statistics">آمار و گزارش‌ها</a>
+            <a href="#staff" data-page="staff">کادر مدیریتی</a>
+            <a href="#rules" data-page="rules">قوانین کلن</a>
+            <a href="#settings" data-page="settings">تنظیمات حساب</a>
+            <a href="#admin" data-page="admin">مدیریت کل سایت</a>
+
+          </nav>
+
+          <button id="logout-button" class="logout-button" type="button">
+            خروج از حساب
+          </button>
+
+        </aside>
+
+        <section class="workspace">
+
+          <header class="page-heading">
+            <div>
+              <p id="page-kicker">INVICTUS CONTROL CENTER</p>
+              <h1 id="page-title">داشبورد</h1>
+            </div>
+          </header>
+
+          <div id="page-alerts"
+               aria-live="polite"></div>
+
+          <main id="page-content" class="page-content">
+            <div class="loading-state">
+              در حال بارگذاری اطلاعات...
+            </div>
+          </main>
+
+        </section>
+      </section>
+
+    </main>
+
+    <div id="global-modal-root"></div>
+
+    <div id="toast-region"
+         role="status"
+         aria-live="polite"
+         aria-atomic="true"></div>
+
+    <footer class="site-footer">
+      <span>łK¹・INVICTUS</span>
+      <span>CODM CLAN MANAGEMENT SYSTEM</span>
+    </footer>
+
+  </div>
+
+  <script type="module" src="assets/js/app.js"></script>
+</body>
+              </html>
+              
