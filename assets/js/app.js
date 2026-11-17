@@ -8,13 +8,14 @@ import {
 } from "./auth.js";
 
 import { canAccessPage } from "./permissions.js";
+import { db, ref, onValue } from "./firebase.js";
 
-import {
-  auth,
-  db,
-  ref,
-  onValue
-} from "./firebase.js";
+import { renderHome } from "./pages/home.js";
+import { renderAnnouncements } from "./pages/announcements.js";
+import { renderApplications } from "./pages/applications.js";
+import { renderMembers } from "./pages/members.js";
+import { renderWars } from "./pages/wars.js";
+import { renderRankings } from "./pages/rankings.js";
 
 const $ = selector => document.querySelector(selector);
 
@@ -73,9 +74,12 @@ const roleNames = {
 let currentUser = null;
 let authCheckInProgress = false;
 let connectionUnsubscribe = null;
+let pageRenderVersion = 0;
 
 function setText(element, value) {
-  if (element) element.textContent = value;
+  if (element) {
+    element.textContent = value;
+  }
 }
 
 function showLoginMessage(message, type = "error") {
@@ -130,6 +134,7 @@ function startConnectionMonitor() {
 
 function showLogin() {
   currentUser = null;
+  pageRenderVersion++;
 
   if (elements.loginView) {
     elements.loginView.hidden = false;
@@ -145,6 +150,10 @@ function showLogin() {
 
   if (elements.pageContent) {
     elements.pageContent.replaceChildren();
+  }
+
+  if (elements.sidebar) {
+    elements.sidebar.classList.remove("open");
   }
 }
 
@@ -198,6 +207,86 @@ function applyNavigationPermissions() {
   });
 }
 
+function showPageError(error) {
+  console.error("Page rendering failed:", error);
+
+  if (!elements.pageContent) return;
+
+  const card = document.createElement("section");
+  card.className = "card error-state";
+
+  const message = document.createElement("p");
+  message.textContent =
+    "بارگذاری این بخش با خطا مواجه شد. اتصال اینترنت و دسترسی حساب را بررسی کنید.";
+
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.className = "secondary-button";
+  retry.textContent = "تلاش دوباره";
+  retry.addEventListener("click", renderPage);
+
+  card.append(message, retry);
+  elements.pageContent.replaceChildren(card);
+}
+
+function showPlaceholder(page) {
+  const card = document.createElement("section");
+  card.className = "card";
+
+  const heading = document.createElement("h2");
+  heading.className = "card-title";
+  heading.textContent = pageNames[page];
+
+  const description = document.createElement("p");
+  description.style.color = "var(--muted)";
+  description.textContent =
+    "ماژول این بخش هنوز به پنل متصل نشده است.";
+
+  card.append(heading, description);
+  elements.pageContent.appendChild(card);
+}
+
+function renderBuiltPage(page) {
+  switch (page) {
+    case "home":
+      return renderHome(
+        elements.pageContent,
+        currentUser
+      );
+
+    case "announcements":
+      return renderAnnouncements(
+        elements.pageContent
+      );
+
+    case "applications":
+      return renderApplications(
+        elements.pageContent,
+        currentUser
+      );
+
+    case "members":
+      return renderMembers(
+        elements.pageContent,
+        currentUser
+      );
+
+    case "wars":
+      return renderWars(
+        elements.pageContent
+      );
+
+    case "rankings":
+      return renderRankings(
+        elements.pageContent,
+        currentUser
+      );
+
+    default:
+      return null;
+  }
+}
+
 function renderPage() {
   if (!currentUser || !elements.pageContent) return;
 
@@ -209,10 +298,15 @@ function renderPage() {
   }
 
   if (!canAccessPage(currentUser, page)) {
+    setText(elements.pageTitle, "دسترسی محدود");
+
     elements.pageContent.textContent =
       "شما اجازه دسترسی به این بخش را ندارید.";
 
-    setText(elements.pageTitle, "دسترسی محدود");
+    if (elements.sidebar) {
+      elements.sidebar.classList.remove("open");
+    }
+
     return;
   }
 
@@ -229,25 +323,28 @@ function renderPage() {
 
   elements.pageContent.replaceChildren();
 
-  const card = document.createElement("section");
-  card.className = "card";
-
-  const heading = document.createElement("h2");
-  heading.className = "card-title";
-  heading.textContent = pageNames[page];
-
-  const description = document.createElement("p");
-  description.style.color = "var(--muted)";
-
-  description.textContent = page === "home"
-    ? `به پنل کلن INVICTUS خوش آمدید، ${currentUser.displayName || "عضو کلن"}.`
-    : "ساختار دسترسی این بخش آماده است؛ اتصال قابلیت‌های آن در مرحله توسعه ماژول مربوطه انجام می‌شود.";
-
-  card.append(heading, description);
-  elements.pageContent.appendChild(card);
-
   if (elements.sidebar) {
     elements.sidebar.classList.remove("open");
+  }
+
+  const renderVersion = ++pageRenderVersion;
+
+  try {
+    const result = renderBuiltPage(page);
+
+    if (result === null || result === undefined) {
+      showPlaceholder(page);
+      return;
+    }
+
+    Promise.resolve(result).catch(error => {
+      if (renderVersion !== pageRenderVersion) return;
+      showPageError(error);
+    });
+
+  } catch (error) {
+    if (renderVersion !== pageRenderVersion) return;
+    showPageError(error);
   }
 }
 
@@ -293,6 +390,7 @@ async function handlePasswordReset() {
 
   try {
     await resetPassword(email);
+
     showLoginMessage(
       "لینک بازیابی رمز عبور ارسال شد.",
       "success"
@@ -313,7 +411,8 @@ async function handleLogout() {
     await logout();
     showToast("از حساب خارج شدید.");
     showLogin();
-  } catch {
+  } catch (error) {
+    console.error("Logout failed:", error);
     showToast("خروج از حساب ناموفق بود.", "error");
   } finally {
     if (elements.logoutButton) {
@@ -323,7 +422,10 @@ async function handleLogout() {
 }
 
 function bindEvents() {
-  elements.loginForm?.addEventListener("submit", handleLogin);
+  elements.loginForm?.addEventListener(
+    "submit",
+    handleLogin
+  );
 
   elements.forgotPassword?.addEventListener(
     "click",
@@ -372,10 +474,16 @@ async function handleAuthState(user) {
     }
 
     showDashboard(session);
+
   } catch (error) {
-    console.error("Authentication verification failed:", error);
+    console.error(
+      "Authentication verification failed:",
+      error
+    );
+
     showLogin();
     showLoginMessage("بررسی حساب ناموفق بود.");
+
   } finally {
     authCheckInProgress = false;
   }
@@ -383,13 +491,14 @@ async function handleAuthState(user) {
 
 function initializeApp() {
   if (!elements.loginView || !elements.dashboardView) {
-    console.error("ساختار اصلی صفحه در index.html ناقص است.");
+    console.error(
+      "ساختار اصلی صفحه در index.html ناقص است."
+    );
     return;
   }
 
   bindEvents();
   startConnectionMonitor();
-
   observeAuth(handleAuthState);
 }
 
