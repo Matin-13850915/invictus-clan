@@ -3,54 +3,92 @@ import { normalizeText } from "./utils.js";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
+const MAX_QUERY_LENGTH = 150;
 
 function cleanQuery(query) {
-  if (typeof query !== "string") {
-    return "";
-  }
+  if (typeof query !== "string") return "";
 
-  return normalizeText(query.trim()).slice(0, 150);
+  return normalizeText(
+    query
+      .replace(/\s+/g, " ")
+      .trim()
+  ).slice(0, MAX_QUERY_LENGTH);
+}
+
+function getFieldValue(item, path) {
+  if (!item || typeof item !== "object") return "";
+
+  return path.split(".").reduce((value, key) => {
+    if (value === null || value === undefined) return "";
+    return value[key];
+  }, item);
 }
 
 function searchableText(item, fields) {
-  if (!item || typeof item !== "object") {
-    return "";
-  }
+  if (!item || typeof item !== "object") return "";
 
   return fields
-    .map(field => item[field])
+    .map(field => getFieldValue(item, field))
     .filter(value =>
       typeof value === "string" ||
-      (typeof value === "number" && Number.isFinite(value))
+      (typeof value === "number" && Number.isFinite(value)) ||
+      typeof value === "boolean"
     )
     .join(" ");
 }
 
-export function searchItems(items, query, fields = []) {
-  if (!Array.isArray(items)) {
-    return [];
+export function searchItems(
+  items,
+  query,
+  fields = [],
+  limit = DEFAULT_LIMIT
+) {
+  if (!Array.isArray(items)) return [];
+
+  if (
+    !Array.isArray(fields) ||
+    fields.length === 0 ||
+    fields.some(field =>
+      typeof field !== "string" || !field.trim()
+    )
+  ) {
+    throw new Error("فیلدهای جستجو مشخص نشده‌اند.");
   }
 
-  if (!Array.isArray(fields) || fields.length === 0) {
-    throw new Error("فیلدهای جستجو مشخص نشده‌اند.");
+  if (
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > MAX_LIMIT
+  ) {
+    throw new Error("محدودیت نتایج معتبر نیست.");
   }
 
   const normalizedQuery = cleanQuery(query);
 
   if (!normalizedQuery) {
-    return items.slice(0, DEFAULT_LIMIT);
+    return items.slice(0, limit);
   }
 
-  return items.filter(item => {
-    const text = normalizeText(searchableText(item, fields));
-    return text.includes(normalizedQuery);
-  });
+  const terms = normalizedQuery
+    .split(" ")
+    .filter(Boolean);
+
+  return items
+    .filter(item => {
+      const text = normalizeText(
+        searchableText(item, fields)
+      );
+
+      return terms.every(term => text.includes(term));
+    })
+    .slice(0, limit);
 }
 
 export function searchForumItems(items, query) {
   return searchItems(items, query, [
     "title",
-    "description"
+    "description",
+    "authorName"
   ]);
 }
 
@@ -120,6 +158,7 @@ export function searchApplications(items, query) {
 export function searchMessages(items, query) {
   return searchItems(items, query, [
     "content",
+    "text",
     "authorName",
     "roomName"
   ]);
@@ -131,21 +170,15 @@ export function searchWithLimit(
   fields,
   limit = DEFAULT_LIMIT
 ) {
-  if (
-    !Number.isInteger(limit) ||
-    limit < 1 ||
-    limit > MAX_LIMIT
-  ) {
-    throw new Error("محدودیت نتایج معتبر نیست.");
-  }
-
-  const results = searchItems(items, query, fields);
-
-  return results.slice(0, limit);
+  return searchItems(items, query, fields, limit);
 }
 
 export function findById(items, id) {
-  if (!Array.isArray(items) || id === undefined || id === null) {
+  if (
+    !Array.isArray(items) ||
+    id === undefined ||
+    id === null
+  ) {
     return null;
   }
 
