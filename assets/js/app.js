@@ -9,6 +9,7 @@ import {
 
 import { canAccessPage } from "./permissions.js";
 import { db, ref, onValue } from "./firebase.js";
+import { submitApplication } from "./applications.js";
 
 const $ = selector => document.querySelector(selector);
 
@@ -182,6 +183,232 @@ function startConnectionMonitor() {
       setConnectionStatus(false);
     }
   );
+}
+
+/* PUBLIC APPLICATION FORM */
+
+function setupPublicApplication() {
+  const authCard = $("#login-view .auth-card");
+
+  if (!authCard || $("#public-application-toggle")) return;
+
+  const toggle = document.createElement("button");
+  toggle.id = "public-application-toggle";
+  toggle.type = "button";
+  toggle.className = "text-button";
+  toggle.textContent = "درخواست عضویت در کلن";
+
+  const root = document.createElement("section");
+  root.id = "public-application-root";
+  root.hidden = true;
+
+  root.innerHTML = `
+    <div class="auth-heading">
+      <span class="eyebrow">JOIN INVICTUS</span>
+      <h2>فرم درخواست عضویت</h2>
+      <p>اطلاعات خود را با دقت وارد کنید.</p>
+    </div>
+
+    <form id="public-application-form">
+
+      <label for="application-real-name">نام واقعی</label>
+      <input
+        id="application-real-name"
+        name="realName"
+        type="text"
+        minlength="2"
+        maxlength="70"
+        required
+      >
+
+      <label for="application-email">ایمیل</label>
+      <input
+        id="application-email"
+        name="email"
+        type="email"
+        maxlength="120"
+        required
+      >
+
+      <label for="application-game-name">نام داخل بازی</label>
+      <input
+        id="application-game-name"
+        name="gameName"
+        type="text"
+        minlength="2"
+        maxlength="40"
+        required
+      >
+
+      <label for="application-game-level">لول بازی</label>
+      <input
+        id="application-game-level"
+        name="gameLevel"
+        type="number"
+        min="1"
+        max="500"
+        required
+      >
+
+      <label for="application-type">بخش مورد درخواست</label>
+      <select
+        id="application-type"
+        name="applicationType"
+        required
+      >
+        <option value="MP">مولتی‌پلیر (MP)</option>
+        <option value="BR">بتل رویال (BR)</option>
+        <option value="BOTH">هر دو بخش</option>
+      </select>
+
+      <div id="application-mp-field">
+        <label for="application-mp-rank">رنک مولتی‌پلیر</label>
+        <input
+          id="application-mp-rank"
+          name="mpRank"
+          type="text"
+          maxlength="40"
+        >
+      </div>
+
+      <div id="application-br-field">
+        <label for="application-br-rank">رنک بتل رویال</label>
+        <input
+          id="application-br-rank"
+          name="brRank"
+          type="text"
+          maxlength="40"
+        >
+      </div>
+
+      <label for="application-contact-type">راه ارتباطی</label>
+      <select
+        id="application-contact-type"
+        name="contactType"
+        required
+      >
+        <option value="telegram">تلگرام</option>
+        <option value="rubika">روبیکا</option>
+      </select>
+
+      <label for="application-contact-value">
+        آیدی یا شماره راه ارتباطی
+      </label>
+      <input
+        id="application-contact-value"
+        name="contactValue"
+        type="text"
+        minlength="3"
+        maxlength="100"
+        required
+      >
+
+      <label for="application-description">
+        توضیحات تکمیلی (اختیاری)
+      </label>
+      <textarea
+        id="application-description"
+        name="description"
+        maxlength="1000"
+        rows="4"
+      ></textarea>
+
+      <button
+        id="public-application-submit"
+        type="submit"
+      >
+        ثبت درخواست عضویت
+      </button>
+
+      <p
+        id="public-application-message"
+        class="form-message"
+        role="status"
+        aria-live="polite"
+      ></p>
+    </form>
+  `;
+
+  authCard.append(toggle, root);
+
+  toggle.addEventListener("click", () => {
+    root.hidden = !root.hidden;
+    toggle.textContent = root.hidden
+      ? "درخواست عضویت در کلن"
+      : "بستن فرم درخواست";
+
+    if (!root.hidden) {
+      root.scrollIntoView({
+        behavior: "smooth",
+        block: "start"
+      });
+    }
+  });
+
+  const form = $("#public-application-form");
+  const typeSelect = $("#application-type");
+  const mpField = $("#application-mp-field");
+  const brField = $("#application-br-field");
+  const mpInput = $("#application-mp-rank");
+  const brInput = $("#application-br-rank");
+  const message = $("#public-application-message");
+  const submitButton = $("#public-application-submit");
+
+  function updateRankFields() {
+    const type = typeSelect.value;
+
+    const showMP = type === "MP" || type === "BOTH";
+    const showBR = type === "BR" || type === "BOTH";
+
+    mpField.hidden = !showMP;
+    brField.hidden = !showBR;
+
+    mpInput.required = showMP;
+    brInput.required = showBR;
+
+    if (!showMP) mpInput.value = "";
+    if (!showBR) brInput.value = "";
+  }
+
+  typeSelect.addEventListener("change", updateRankFields);
+  updateRankFields();
+
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+
+    message.textContent = "";
+    message.className = "form-message";
+
+    const data = Object.fromEntries(
+      new FormData(form).entries()
+    );
+
+    data.gameLevel = Number(data.gameLevel);
+
+    submitButton.disabled = true;
+    submitButton.textContent = "در حال ثبت درخواست...";
+
+    try {
+      const result = await submitApplication(data);
+
+      message.className = "form-message success";
+      message.textContent =
+        `درخواست شما ثبت شد. کد پیگیری: ${result.id}`;
+
+      form.reset();
+      updateRankFields();
+
+    } catch (error) {
+      console.error("Public application failed:", error);
+
+      message.className = "form-message";
+      message.textContent =
+        error?.message || "ثبت درخواست انجام نشد.";
+    } finally {
+      submitButton.disabled = false;
+      submitButton.textContent = "ثبت درخواست عضویت";
+    }
+  });
 }
 
 function showLogin() {
@@ -500,10 +727,11 @@ function initializeApp() {
     return;
   }
 
+  setupPublicApplication();
   bindEvents();
   startConnectionMonitor();
   observeAuth(handleAuthState);
 }
 
 initializeApp();
-  
+      
