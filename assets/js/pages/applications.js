@@ -10,21 +10,9 @@ import {
 
 import { readData } from "../database.js";
 
-const $ = (tag, className = "", text = "") => {
-  const element = document.createElement(tag);
+const MANAGERS = ["admin", "leader"];
 
-  if (className) element.className = className;
-
-  if (text !== undefined && text !== null) {
-    element.textContent = String(text);
-  }
-
-  return element;
-};
-
-const MANAGER_ROLES = ["admin", "leader"];
-
-const STATUS_OPTIONS = [
+const STATUSES = [
   ["", "همه وضعیت‌ها"],
   ["pending", "در انتظار بررسی"],
   ["awaiting_tester", "در انتظار تعیین تستر"],
@@ -38,45 +26,116 @@ const STATUS_OPTIONS = [
   ["expired", "منقضی شده"]
 ];
 
-const RESULT_LABELS = {
+const RESULTS = {
   recommended: "پیشنهاد پذیرش",
   not_recommended: "عدم پیشنهاد پذیرش",
   retest: "نیازمند تست مجدد"
 };
 
-const DECISION_LABELS = {
+const DECISIONS = {
   accepted: "پذیرش نهایی",
   rejected: "رد درخواست",
   retest_requested: "درخواست تست مجدد"
 };
 
-function isActiveUser(user) {
+function el(tag, className = "", text = "") {
+  const node = document.createElement(tag);
+
+  if (className) node.className = className;
+  if (text !== undefined && text !== null) {
+    node.textContent = String(text);
+  }
+
+  return node;
+}
+
+function active(user) {
   return Boolean(
-    user &&
-    typeof user.uid === "string" &&
-    user.uid.trim() &&
+    user?.uid &&
     user.active === true &&
     user.status !== "banned" &&
     user.status !== "suspended"
   );
 }
 
-function isManager(user) {
-  return (
-    isActiveUser(user) &&
-    MANAGER_ROLES.includes(user.role)
-  );
+function manager(user) {
+  return active(user) && MANAGERS.includes(user.role);
 }
 
-function isTester(user) {
+function tester(user) {
   return (
-    isActiveUser(user) &&
+    active(user) &&
     user.role === "tester" &&
     ["MP", "BR"].includes(user.specialty)
   );
 }
 
-function formatDate(value) {
+function button(text, handler, className = "secondary-button") {
+  const node = el("button", className, text);
+  node.type = "button";
+  node.addEventListener("click", handler);
+  return node;
+}
+
+function select(options) {
+  const node = el("select", "form-input");
+
+  options.forEach(([value, label]) => {
+    const option = el("option", "", label);
+    option.value = value;
+    node.appendChild(option);
+  });
+
+  return node;
+}
+
+function field(label, control) {
+  const wrapper = el("label", "application-field");
+
+  wrapper.append(
+    el("span", "application-field-label", label),
+    control
+  );
+
+  return wrapper;
+}
+
+function section(title, description = "") {
+  const node = el("section", "card application-section");
+
+  node.appendChild(el("h2", "card-title", title));
+
+  if (description) {
+    node.appendChild(
+      el("p", "application-description", description)
+    );
+  }
+
+  return node;
+}
+
+function message(parent, text, type = "info") {
+  parent.prepend(
+    el("div", `card application-message ${type}`, text)
+  );
+}
+
+function info(label, value) {
+  const node = el("div", "application-info-item");
+
+  node.append(
+    el("span", "application-info-label", label),
+    el(
+      "strong",
+      "application-info-value",
+      value === 0 ? "0" : value || "ثبت نشده"
+    )
+  );
+
+  return node;
+}
+
+function date(value) {
   const timestamp = Number(value);
 
   if (!Number.isFinite(timestamp) || timestamp <= 0) {
@@ -97,82 +156,16 @@ function normalize(value) {
     .replace(/ك/g, "ک");
 }
 
-function createButton(label, className, handler) {
-  const button = $("button", className, label);
+function contactLabel(type) {
+  const labels = {
+    telegram: "تلگرام",
+    rubika: "روبیکا"
+  };
 
-  button.type = "button";
-  button.addEventListener("click", handler);
-
-  return button;
+  return labels[String(type || "").toLowerCase()] || "نامشخص";
 }
 
-function createSelect(options, className = "form-input") {
-  const select = $("select", className);
-
-  options.forEach(([value, label]) => {
-    const option = $("option", "", label);
-
-    option.value = value;
-    select.appendChild(option);
-  });
-
-  return select;
-}
-
-function createField(labelText, control) {
-  const wrapper = $("label", "application-field");
-
-  wrapper.append(
-    $("span", "application-field-label", labelText),
-    control
-  );
-
-  return wrapper;
-}
-
-function showMessage(container, message, type = "info") {
-  const box = $("div", `card application-message ${type}`, message);
-
-  container.prepend(box);
-}
-
-function createSection(title, description = "") {
-  const section = $("section", "card application-section");
-
-  section.appendChild(
-    $("h2", "card-title", title)
-  );
-
-  if (description) {
-    section.appendChild(
-      $("p", "application-description", description)
-    );
-  }
-
-  return section;
-}
-
-function createInfo(label, value) {
-  const item = $("div", "application-info-item");
-
-  item.append(
-    $("span", "application-info-label", label),
-    $("strong", "application-info-value", value || "ثبت نشده")
-  );
-
-  return item;
-}
-
-function getApplicationName(application) {
-  return (
-    application.realName ||
-    application.gameName ||
-    application.email ||
-    "متقاضی بدون نام"
-  );
-}
-
-function getApplicationTypeLabel(type) {
+function typeLabel(type) {
   const labels = {
     MP: "Multiplayer",
     BR: "Battle Royale",
@@ -182,38 +175,25 @@ function getApplicationTypeLabel(type) {
   return labels[type] || "نامشخص";
 }
 
-function getContactTypeLabel(type) {
-  const labels = {
-    telegram: "تلگرام",
-    rubika: "روبیکا"
-  };
-
-  return labels[String(type || "").toLowerCase()] || "نامشخص";
+function applicationName(app) {
+  return (
+    app.realName ||
+    app.gameName ||
+    app.email ||
+    "متقاضی بدون نام"
+  );
 }
 
-function getCompatibleSpecialties(application) {
-  if (application.applicationType === "MP") {
-    return ["MP"];
-  }
-
-  if (application.applicationType === "BR") {
-    return ["BR"];
-  }
-
-  if (application.applicationType === "BOTH") {
-    return ["MP", "BR"];
-  }
+function compatibleSpecialties(app) {
+  if (app.applicationType === "MP") return ["MP"];
+  if (app.applicationType === "BR") return ["BR"];
+  if (app.applicationType === "BOTH") return ["MP", "BR"];
 
   return [];
 }
 
-function getTesterName(tester) {
-  return (
-    tester.displayName ||
-    tester.gameName ||
-    tester.uid ||
-    "تستر بدون نام"
-  );
+function testerName(user) {
+  return user.displayName || user.gameName || user.uid;
 }
 
 async function loadTesters() {
@@ -222,21 +202,14 @@ async function loadTesters() {
     readData("users")
   ]);
 
-  const roles =
-    rolesData && typeof rolesData === "object"
-      ? rolesData
-      : {};
-
-  const users =
-    usersData && typeof usersData === "object"
-      ? usersData
-      : {};
+  const roles = rolesData || {};
+  const users = usersData || {};
 
   return Object.entries(roles)
-    .map(([uid, roleData]) => ({
+    .map(([uid, role]) => ({
       uid,
       ...(users[uid] || {}),
-      ...(roleData || {})
+      ...(role || {})
     }))
     .filter(user =>
       user.role === "tester" &&
@@ -246,385 +219,267 @@ async function loadTesters() {
       ["MP", "BR"].includes(user.specialty)
     )
     .sort((a, b) =>
-      getTesterName(a).localeCompare(
-        getTesterName(b),
-        "fa"
-      )
+      testerName(a).localeCompare(testerName(b), "fa")
     );
 }
 
-function createApplicationDetails(application) {
-  const section = $("section", "application-details");
-
-  const grid = $("div", "application-info-grid");
+function applicationDetails(app) {
+  const wrapper = el("section", "application-details");
+  const grid = el("div", "application-info-grid");
 
   grid.append(
-    createInfo("نام واقعی", application.realName),
-    createInfo("نام داخل بازی", application.gameName),
-    createInfo("لول بازی", application.gameLevel),
-    createInfo("نوع درخواست", getApplicationTypeLabel(application.applicationType)),
-    createInfo("رنک MP", application.mpRank),
-    createInfo("رنک BR", application.brRank),
-    createInfo("ایمیل", application.email),
-
-    createInfo(
-      "نوع راه ارتباطی",
-      getContactTypeLabel(application.contactType)
-    ),
-
-    createInfo(
-      "آیدی یا شماره تماس",
-      application.contactValue
-    ),
-
-    createInfo("تلگرام", application.telegram),
-    createInfo("روبیکا", application.rubika)
+    info("نام واقعی", app.realName),
+    info("نام داخل بازی", app.gameName),
+    info("لول بازی", app.gameLevel),
+    info("نوع درخواست", typeLabel(app.applicationType)),
+    info("رنک MP", app.mpRank),
+    info("رنک BR", app.brRank),
+    info("ایمیل", app.email),
+    info("نوع راه ارتباطی", contactLabel(app.contactType)),
+    info("آیدی یا شماره تماس", app.contactValue),
+    info("تلگرام", app.telegram),
+    info("روبیکا", app.rubika)
   );
 
-  section.appendChild(grid);
+  wrapper.appendChild(grid);
 
-  if (application.description) {
-    section.appendChild(
-      $("p", "application-note",
-        `توضیحات متقاضی: ${application.description}`
-      )
-    );
-  }
+  const notes = [
+    ["توضیحات متقاضی", app.description],
+    ["شناسه تستر", app.assignedTesterUid],
+    ["تخصص تست", app.assignedSpecialty],
+    ["نتیجه تست", RESULTS[app.testResult] || app.testResult],
+    ["یادداشت تستر", app.testNote],
+    ["یادداشت لیدر", app.leaderNote],
+    ["یادداشت داخلی", app.internalNote]
+  ];
 
-  if (application.assignedTesterUid) {
-    section.appendChild(
-      $("p", "application-note",
-        `شناسه تستر اختصاص‌یافته: ${application.assignedTesterUid}`
-      )
-    );
-  }
+  notes.forEach(([label, value]) => {
+    if (value) {
+      wrapper.appendChild(
+        el("p", "application-note", `${label}: ${value}`)
+      );
+    }
+  });
 
-  if (application.assignedSpecialty) {
-    section.appendChild(
-      $("p", "application-note",
-        `تخصص تست: ${application.assignedSpecialty}`
-      )
-    );
-  }
-
-  if (application.testResult) {
-    section.appendChild(
-      $("p", "application-note",
-        `نتیجه تست: ${RESULT_LABELS[application.testResult] || application.testResult}`
-      )
-    );
-  }
-
-  if (application.testNote) {
-    section.appendChild(
-      $("p", "application-note",
-        `یادداشت تستر: ${application.testNote}`
-      )
-    );
-  }
-
-  if (application.leaderNote) {
-    section.appendChild(
-      $("p", "application-note",
-        `یادداشت لیدر: ${application.leaderNote}`
-      )
-    );
-  }
-
-  if (application.internalNote) {
-    section.appendChild(
-      $("p", "application-note",
-        `یادداشت داخلی: ${application.internalNote}`
-      )
-    );
-  }
-
-  return section;
+  return wrapper;
 }
 
-function createAssignmentForm(
-  application,
-  testers,
-  user,
-  onChanged
-) {
-  if (!isManager(user)) return null;
+function assignmentForm(app, testers, user, reload) {
+  if (!manager(user)) return null;
 
-  const allowedStatuses = [
+  if (![
     "pending",
     "awaiting_tester",
     "retest_requested"
-  ];
-
-  if (!allowedStatuses.includes(application.status)) {
+  ].includes(app.status)) {
     return null;
   }
 
-  const section = createSection(
+  const box = section(
     "تخصیص تستر",
     "تستر متناسب با نوع درخواست را انتخاب کنید."
   );
 
-  const specialties = getCompatibleSpecialties(application);
+  const specialties = compatibleSpecialties(app);
 
   if (!specialties.length) {
-    section.appendChild(
-      $("p", "empty-state", "نوع درخواست برای تخصیص تستر معتبر نیست.")
+    box.appendChild(
+      el("p", "empty-state", "نوع درخواست معتبر نیست.")
     );
-
-    return section;
+    return box;
   }
 
-  const specialtySelect = createSelect(
-    specialties.map(item => [
-      item,
-      item === "MP" ? "تستر Multiplayer" : "تستر Battle Royale"
+  const specialty = select(
+    specialties.map(value => [
+      value,
+      value === "MP" ? "تستر Multiplayer" : "تستر Battle Royale"
     ])
   );
 
-  const testerSelect = createSelect([]);
+  const testerSelect = select([]);
 
-  function updateTesterOptions() {
-    const specialty = specialtySelect.value;
-
-    const matching = testers.filter(tester =>
-      tester.specialty === specialty
-    );
-
+  function updateTesters() {
     testerSelect.replaceChildren();
 
-    if (!matching.length) {
-      const option = $("option", "", "تستری با این تخصص پیدا نشد");
+    const matching = testers.filter(item =>
+      item.specialty === specialty.value
+    );
 
-      option.value = "";
-      testerSelect.appendChild(option);
-
-      return;
-    }
-
-    const placeholder = $("option", "", "انتخاب تستر");
+    const placeholder = el(
+      "option",
+      "",
+      matching.length ? "انتخاب تستر" : "تستری پیدا نشد"
+    );
 
     placeholder.value = "";
     testerSelect.appendChild(placeholder);
 
-    matching.forEach(tester => {
-      const option = $("option", "",
-        `${getTesterName(tester)} (${tester.specialty})`
+    matching.forEach(item => {
+      const option = el(
+        "option",
+        "",
+        `${testerName(item)} (${item.specialty})`
       );
 
-      option.value = tester.uid;
+      option.value = item.uid;
       testerSelect.appendChild(option);
     });
   }
 
-  specialtySelect.addEventListener(
-    "change",
-    updateTesterOptions
-  );
+  specialty.addEventListener("change", updateTesters);
+  updateTesters();
 
-  updateTesterOptions();
-
-  const form = $("form", "application-action-form");
-
-  form.append(
-    createField("تخصص تست", specialtySelect),
-    createField("تستر", testerSelect)
-  );
-
-  const submit = $("button", "primary-button", "تخصیص تستر");
+  const form = el("form", "application-action-form");
+  const submit = el("button", "primary-button", "تخصیص تستر");
 
   submit.type = "submit";
-  form.appendChild(submit);
+
+  form.append(
+    field("تخصص تست", specialty),
+    field("تستر", testerSelect),
+    submit
+  );
 
   form.addEventListener("submit", async event => {
     event.preventDefault();
 
     if (!testerSelect.value) {
-      showMessage(section, "ابتدا یک تستر معتبر انتخاب کنید.", "error");
+      message(box, "ابتدا تستر را انتخاب کنید.", "error");
       return;
     }
 
     submit.disabled = true;
-    submit.textContent = "در حال تخصیص...";
 
     try {
       await assignApplicationTester(
-        application.id,
+        app.id,
         testerSelect.value,
-        specialtySelect.value,
+        specialty.value,
         user
       );
 
-      showMessage(section, "تستر با موفقیت اختصاص داده شد.", "success");
-
-      await onChanged();
+      await reload();
 
     } catch (error) {
-      showMessage(
-        section,
-        error.message || "تخصیص تستر انجام نشد.",
-        "error"
-      );
-    } finally {
+      message(box, error.message || "تخصیص تستر ناموفق بود.", "error");
       submit.disabled = false;
-      submit.textContent = "تخصیص تستر";
     }
   });
 
-  section.appendChild(form);
-
-  return section;
+  box.appendChild(form);
+  return box;
 }
 
-function createTesterActions(application, user, onChanged) {
-  if (!isTester(user)) return null;
+function testerActions(app, user, reload) {
+  if (!tester(user)) return null;
 
-  const section = createSection(
+  const box = section(
     "عملیات تستر",
-    "نتیجه بررسی خود را پس از انجام تست ثبت کنید."
+    "نتیجه بررسی را پس از انجام تست ثبت کنید."
   );
 
-  if (application.status === "awaiting_test") {
-    section.appendChild(
-      createButton(
-        "شروع تست",
-        "secondary-button",
-        async () => {
-          try {
-            await startApplicationTest(
-              application.id,
-              user
-            );
-
-            await onChanged();
-
-          } catch (error) {
-            showMessage(
-              section,
-              error.message || "شروع تست انجام نشد.",
-              "error"
-            );
-          }
+  if (app.status === "awaiting_test") {
+    box.appendChild(
+      button("شروع تست", async () => {
+        try {
+          await startApplicationTest(app.id, user);
+          await reload();
+        } catch (error) {
+          message(box, error.message || "شروع تست ناموفق بود.", "error");
         }
-      )
+      })
     );
   }
 
-  if (
-    ["awaiting_test", "testing"].includes(application.status)
-  ) {
-    const form = $("form", "application-action-form");
-
-    const resultSelect = createSelect([
+  if (["awaiting_test", "testing"].includes(app.status)) {
+    const result = select([
       ["recommended", "پیشنهاد پذیرش"],
       ["not_recommended", "عدم پیشنهاد پذیرش"],
       ["retest", "نیازمند تست مجدد"]
     ]);
 
-    const note = $("textarea", "form-input");
-
+    const note = el("textarea", "form-input");
     note.placeholder = "توضیحات و دلیل نتیجه تست...";
     note.maxLength = 1000;
     note.rows = 4;
 
-    const submit = $("button", "primary-button", "ثبت نتیجه تست");
+    const form = el("form", "application-action-form");
+    const submit = el("button", "primary-button", "ثبت نتیجه تست");
 
     submit.type = "submit";
 
     form.append(
-      createField("نتیجه تست", resultSelect),
-      createField("توضیحات تست", note),
+      field("نتیجه تست", result),
+      field("توضیحات تست", note),
       submit
     );
 
     form.addEventListener("submit", async event => {
       event.preventDefault();
-
       submit.disabled = true;
-      submit.textContent = "در حال ثبت...";
 
       try {
         await submitTestResult(
-          application.id,
-          resultSelect.value,
+          app.id,
+          result.value,
           note.value,
           user
         );
 
-        showMessage(section, "نتیجه تست ثبت شد.", "success");
-
-        await onChanged();
+        await reload();
 
       } catch (error) {
-        showMessage(
-          section,
-          error.message || "ثبت نتیجه تست انجام نشد.",
-          "error"
-        );
-      } finally {
+        message(box, error.message || "ثبت نتیجه ناموفق بود.", "error");
         submit.disabled = false;
-        submit.textContent = "ثبت نتیجه تست";
       }
     });
 
-    section.appendChild(form);
+    box.appendChild(form);
   }
 
-  return section;
+  return box;
 }
 
-function createLeaderDecisionForm(application, user, onChanged) {
-  if (!isManager(user)) return null;
+function leaderDecision(app, user, reload) {
+  if (!manager(user)) return null;
 
-  const allowedStatuses = [
+  const allowed = [
     "pending",
     "awaiting_tester",
     "awaiting_leader",
     "retest_requested"
   ];
 
-  if (!allowedStatuses.includes(application.status)) {
-    return null;
-  }
+  if (!allowed.includes(app.status)) return null;
 
-  const section = createSection(
+  const box = section(
     "تصمیم نهایی لیدر",
-    "تصمیم نهایی درخواست را ثبت کنید. تستر اجازه پذیرش یا رد نهایی ندارد."
+    "تستر اجازه پذیرش یا رد نهایی ندارد."
   );
 
-  const decisionSelect = createSelect([
+  const decision = select([
     ["rejected", "رد درخواست"],
     ["retest_requested", "درخواست تست مجدد"],
     ["accepted", "پذیرش نهایی"]
   ]);
 
-  if (
-    !["pending", "awaiting_leader"].includes(application.status)
-  ) {
-    const acceptOption = decisionSelect.querySelector(
-      'option[value="accepted"]'
-    );
-
-    if (acceptOption) {
-      acceptOption.disabled = true;
-    }
+  if (!["pending", "awaiting_leader"].includes(app.status)) {
+    decision.querySelector('option[value="accepted"]').disabled = true;
   }
 
-  const note = $("textarea", "form-input");
-
+  const note = el("textarea", "form-input");
   note.placeholder = "دلیل تصمیم یا توضیحات لیدر...";
   note.maxLength = 1000;
   note.rows = 4;
 
-  const form = $("form", "application-action-form");
-
-  const submit = $("button", "primary-button", "ثبت تصمیم");
+  const form = el("form", "application-action-form");
+  const submit = el("button", "primary-button", "ثبت تصمیم");
 
   submit.type = "submit";
 
   form.append(
-    createField("تصمیم", decisionSelect),
-    createField("توضیحات", note),
+    field("تصمیم", decision),
+    field("توضیحات", note),
     submit
   );
 
@@ -632,155 +487,100 @@ function createLeaderDecisionForm(application, user, onChanged) {
     event.preventDefault();
 
     if (
-      decisionSelect.value === "accepted" &&
-      !["pending", "awaiting_leader"].includes(application.status)
+      decision.value === "accepted" &&
+      !["pending", "awaiting_leader"].includes(app.status)
     ) {
-      showMessage(
-        section,
-        "این درخواست هنوز آماده پذیرش نهایی نیست.",
-        "error"
-      );
-
+      message(box, "این درخواست آماده پذیرش نهایی نیست.", "error");
       return;
     }
 
-    const confirmed = confirm(
-      `تصمیم «${DECISION_LABELS[decisionSelect.value]}» ثبت شود؟`
-    );
-
-    if (!confirmed) return;
+    if (!confirm(`تصمیم «${DECISIONS[decision.value]}» ثبت شود؟`)) {
+      return;
+    }
 
     submit.disabled = true;
-    submit.textContent = "در حال ثبت تصمیم...";
 
     try {
       await decideApplication(
-        application.id,
-        decisionSelect.value,
+        app.id,
+        decision.value,
         note.value,
         user
       );
 
-      showMessage(section, "تصمیم نهایی ثبت شد.", "success");
-
-      await onChanged();
+      await reload();
 
     } catch (error) {
-      showMessage(
-        section,
-        error.message || "ثبت تصمیم انجام نشد.",
-        "error"
-      );
-    } finally {
+      message(box, error.message || "ثبت تصمیم ناموفق بود.", "error");
       submit.disabled = false;
-      submit.textContent = "ثبت تصمیم";
     }
   });
 
-  section.appendChild(form);
-
-  return section;
+  box.appendChild(form);
+  return box;
 }
 
-function createApplicationCard(
-  application,
-  user,
-  testers,
-  onChanged
-) {
-  const card = $("article", "card application-card");
+function applicationCard(app, user, testers, reload) {
+  const card = el("article", "card application-card");
 
-  const header = $("div", "application-card-header");
+  const header = el("div", "application-card-header");
 
-  const title = $("h2", "card-title", getApplicationName(application));
-
-  const status = $("span", "application-status",
-    getApplicationStatusLabel(application.status)
-  );
-
-  header.append(title, status);
-
-  card.appendChild(header);
-
-  card.append(
-    $("p", "application-meta",
-      `نام بازی: ${application.gameName || "ثبت نشده"}`
-    ),
-    $("p", "application-meta",
-      `تاریخ ثبت: ${formatDate(application.createdAt)}`
-    ),
-    $("p", "application-meta",
-      `شناسه درخواست: ${application.id}`
+  header.append(
+    el("h2", "card-title", applicationName(app)),
+    el(
+      "span",
+      "application-status",
+      getApplicationStatusLabel(app.status)
     )
   );
 
-  card.appendChild(
-    createApplicationDetails(application)
+  card.append(
+    header,
+    el("p", "application-meta", `نام بازی: ${app.gameName || "ثبت نشده"}`),
+    el("p", "application-meta", `تاریخ ثبت: ${date(app.createdAt)}`),
+    el("p", "application-meta", `شناسه درخواست: ${app.id}`),
+    applicationDetails(app)
   );
 
-  const assignment = createAssignmentForm(
-    application,
-    testers,
-    user,
-    onChanged
-  );
+  const assignment = assignmentForm(app, testers, user, reload);
+  const actions = testerActions(app, user, reload);
+  const decision = leaderDecision(app, user, reload);
 
-  if (assignment) {
-    card.appendChild(assignment);
-  }
-
-  const testerActions = createTesterActions(
-    application,
-    user,
-    onChanged
-  );
-
-  if (testerActions) {
-    card.appendChild(testerActions);
-  }
-
-  const leaderForm = createLeaderDecisionForm(
-    application,
-    user,
-    onChanged
-  );
-
-  if (leaderForm) {
-    card.appendChild(leaderForm);
-  }
+  if (assignment) card.appendChild(assignment);
+  if (actions) card.appendChild(actions);
+  if (decision) card.appendChild(decision);
 
   return card;
 }
 
-function createSummary(applications) {
-  const summary = $("section", "application-summary");
+function summary(applications) {
+  const box = el("section", "application-summary");
 
-  const count = status =>
-    applications.filter(item => item.status === status).length;
-
-  const items = [
+  const counts = [
     ["کل درخواست‌ها", applications.length],
-    ["در انتظار بررسی", count("pending")],
-    ["در انتظار تست", count("awaiting_test")],
-    ["در انتظار لیدر", count("awaiting_leader")],
-    ["پذیرفته‌شده", count("accepted")],
-    ["ردشده", count("rejected")]
+    ["در انتظار بررسی", applications.filter(x => x.status === "pending").length],
+    ["در انتظار تست", applications.filter(x => x.status === "awaiting_test").length],
+    ["در انتظار لیدر", applications.filter(x => x.status === "awaiting_leader").length],
+    ["پذیرفته‌شده", applications.filter(x => x.status === "accepted").length],
+    ["ردشده", applications.filter(x => x.status === "rejected").length]
   ];
 
-  items.forEach(([label, value]) => {
-    const box = $("div", "card application-stat");
+  counts.forEach(([label, count]) => {
+    const item = el("div", "card application-stat");
 
-    box.append(
-      $("span", "application-stat-label", label),
-      $("strong", "application-stat-value",
-        new Intl.NumberFormat("fa-IR").format(value)
+    item.append(
+      el("span", "application-stat-label", label),
+      el(
+        "strong",
+        "application-stat-value",
+        new Intl.NumberFormat("fa-IR").format(count)
       )
     );
 
-    summary.appendChild(box);
+    box.appendChild(item);
   });
 
-  return summary;
+  return box;
 }
 
 export async function renderApplications(container, user) {
@@ -788,104 +588,84 @@ export async function renderApplications(container, user) {
     throw new Error("محل نمایش درخواست‌ها معتبر نیست.");
   }
 
-  if (!isManager(user) && !isTester(user)) {
+  if (!manager(user) && !tester(user)) {
     container.replaceChildren(
-      $("section", "card error-state",
+      el("section", "card error-state",
         "دسترسی به مدیریت درخواست‌های عضویت برای حساب شما مجاز نیست."
       )
     );
-
     return;
   }
 
-  container.replaceChildren(
-    $("p", "loading-state", "در حال دریافت درخواست‌های عضویت...")
-  );
-
   const load = async () => {
     container.replaceChildren(
-      $("p", "loading-state", "در حال دریافت اطلاعات...")
+      el("p", "loading-state", "در حال دریافت درخواست‌ها...")
     );
 
     try {
       const [applications, testers] = await Promise.all([
         getApplications(user),
-        isManager(user) ? loadTesters() : Promise.resolve([])
+        manager(user) ? loadTesters() : Promise.resolve([])
       ]);
 
-      const content = $("div", "applications-page");
+      const page = el("div", "applications-page");
 
-      const heading = createSection(
+      const heading = section(
         "مدیریت درخواست‌های عضویت INVICTUS",
-        isTester(user)
+        tester(user)
           ? `درخواست‌های اختصاص‌یافته به شما در تخصص ${user.specialty}`
           : "بررسی متقاضیان، تخصیص تستر و تصمیم‌گیری نهایی"
       );
 
-      const toolbar = $("div", "applications-toolbar");
+      const toolbar = el("div", "applications-toolbar");
 
-      const search = $("input", "form-input");
+      const search = el("input", "form-input");
       search.type = "search";
       search.placeholder = "جستجو با نام، ایمیل، نام بازی یا اطلاعات تماس...";
 
-      const statusFilter = createSelect(STATUS_OPTIONS);
+      const statusFilter = select(STATUSES);
 
       toolbar.append(search, statusFilter);
 
-      const list = $("div", "applications-list");
-
-      const refresh = createButton(
-        "به‌روزرسانی درخواست‌ها",
-        "secondary-button",
-        load
-      );
+      const list = el("div", "applications-list");
 
       function updateList() {
         const term = normalize(search.value);
-        const selectedStatus = statusFilter.value;
+        const status = statusFilter.value;
 
-        const filtered = applications.filter(application => {
-          const searchText = normalize([
-            application.realName,
-            application.gameName,
-            application.email,
-            application.uid,
-            application.id,
-            application.contactType,
-            application.contactValue,
-            application.telegram,
-            application.rubika
+        const filtered = applications.filter(app => {
+          const searchable = normalize([
+            app.realName,
+            app.gameName,
+            app.email,
+            app.uid,
+            app.id,
+            app.contactType,
+            app.contactValue,
+            app.telegram,
+            app.rubika
           ].join(" "));
 
-          const matchesSearch = searchText.includes(term);
-
-          const matchesStatus =
-            !selectedStatus ||
-            application.status === selectedStatus;
-
-          return matchesSearch && matchesStatus;
+          return (
+            searchable.includes(term) &&
+            (!status || app.status === status)
+          );
         });
 
         list.replaceChildren();
 
         if (!filtered.length) {
           list.appendChild(
-            $("section", "card empty-state",
+            el("section", "card empty-state",
               "درخواستی با این مشخصات پیدا نشد."
             )
           );
-
           return;
         }
 
-        filtered.forEach(application => {
+        filtered.forEach(app => {
           list.appendChild(
-            createApplicationCard(
-              application,
-              user,
-              testers,
-              load
-            )
+            applicationCard(app, user, testers, load)
           );
         });
       }
@@ -893,27 +673,34 @@ export async function renderApplications(container, user) {
       search.addEventListener("input", updateList);
       statusFilter.addEventListener("change", updateList);
 
-      content.append(
+      page.append(
         heading,
-        createSummary(applications),
+        summary(applications),
         toolbar,
         list,
-        refresh
+        button("به‌روزرسانی درخواست‌ها", load)
       );
 
+      container.replaceChildren(page);
       updateList();
-
-      container.replaceChildren(content);
 
     } catch (error) {
       console.error("Applications page error:", error);
 
-      const errorCard = $("section", "card error-state");
+      const errorBox = el("section", "card error-state");
 
-      errorCard.append(
-        $("p", "",
+      errorBox.append(
+        el(
+          "p",
+          "",
           error.message || "دریافت درخواست‌های عضویت ناموفق بود."
         ),
-        createButton("تلاش دوباره", "secondary-button", load)
+        button("تلاش دوباره", load)
       );
 
+      container.replaceChildren(errorBox);
+    }
+  };
+
+  await load();
+}
