@@ -135,17 +135,6 @@ function validateApplication(data) {
 
 export async function submitApplication(data) {
   const application = validateApplication(data);
-  const existing = await getAllRecords(APPLICATION_PATH);
-
-  const duplicate = existing.some(item =>
-    item.email?.toLowerCase() === application.email &&
-    !TERMINAL_STATUSES.includes(item.status)
-  );
-
-  if (duplicate) {
-    throw new Error("با این ایمیل یک درخواست فعال ثبت شده است.");
-  }
-
   const now = Date.now();
 
   const id = await createRecord(APPLICATION_PATH, {
@@ -302,4 +291,4 @@ export async function assignTester(
 
   return true;
     }
-    
+                    
