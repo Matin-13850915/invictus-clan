@@ -1,7 +1,8 @@
 
 import {
   createRecord,
-  readData,
+  getRecord,
+  getAllRecords,
   updateData,
   deleteData
 } from "./database.js";
@@ -10,84 +11,117 @@ import { normalizeText } from "./utils.js";
 
 const PATH = "announcements";
 
+function requireStaff(actor) {
+  if (
+    !actor?.uid ||
+    !["admin", "leader"].includes(actor.role)
+  ) {
+    throw new Error("فقط لیدر و ادمین اجازه مدیریت اطلاعیه‌ها را دارند.");
+  }
+}
+
+function cleanText(value, maxLength) {
+  return normalizeText(String(value ?? "").trim()).slice(0, maxLength);
+}
+
 function validateAnnouncement(data) {
-  if (!data || typeof data !== "object") {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
     throw new Error("اطلاعات اطلاعیه معتبر نیست.");
   }
 
-  const title = normalizeText(data.title);
-  const body = normalizeText(data.body);
+  const title = cleanText(data.title, 100);
+  const body = cleanText(data.body, 5000);
 
-  if (title.length < 3 || title.length > 100) {
-    throw new Error("عنوان اطلاعیه باید بین ۳ تا ۱۰۰ حرف باشد.");
+  if (title.length < 3) {
+    throw new Error("عنوان اطلاعیه باید حداقل ۳ کاراکتر باشد.");
   }
 
-  if (body.length < 5 || body.length > 5000) {
-    throw new Error("متن اطلاعیه باید بین ۵ تا ۵۰۰۰ حرف باشد.");
+  if (body.length < 5) {
+    throw new Error("متن اطلاعیه باید حداقل ۵ کاراکتر باشد.");
   }
 
   return { title, body };
 }
 
-function requireStaff(actor) {
+function validateId(id) {
   if (
-    !actor ||
-    !actor.uid ||
-    !["admin", "leader"].includes(actor.role)
+    typeof id !== "string" ||
+    !id.trim() ||
+    /[.#$/[\]]/.test(id)
   ) {
-    throw new Error("فقط لیدر و ادمین اجازه مدیریت اطلاعیه را دارند.");
+    throw new Error("شناسه اطلاعیه معتبر نیست.");
   }
+}
+
+function normalizeAnnouncement(item) {
+  return {
+    id: item.id,
+    title: item.title || "",
+    body: item.body || "",
+    pinned: item.pinned === true,
+    archived: item.archived === true,
+    authorUid: item.authorUid || "",
+    createdAt: Number(item.createdAt) || 0,
+    updatedAt: Number(item.updatedAt) || 0
+  };
 }
 
 export async function createAnnouncement(data, actor) {
   requireStaff(actor);
 
   const content = validateAnnouncement(data);
+  const now = Date.now();
 
-  return await createRecord(PATH, {
+  const id = await createRecord(PATH, {
     ...content,
     pinned: false,
     archived: false,
     authorUid: actor.uid,
-    createdAt: Date.now(),
-    updatedAt: Date.now()
+    createdAt: now,
+    updatedAt: now
   });
+
+  return id;
 }
 
 export async function getAnnouncements(options = {}) {
-  const data = await readData(PATH);
+  const announcements = await getAllRecords(PATH);
 
-  if (!data) return [];
-
-  return Object.entries(data)
-    .map(([id, item]) => ({ id, ...item }))
-    .filter(item => {
-      if (options.includeArchived) return true;
-      return item.archived !== true;
-    })
+  return announcements
+    .filter(item => options.includeArchived || item.archived !== true)
+    .map(normalizeAnnouncement)
     .sort((a, b) => {
       if (a.pinned !== b.pinned) {
-        return a.pinned ? -1 : 1;
+        return Number(b.pinned) - Number(a.pinned);
       }
 
-      return (b.createdAt || 0) - (a.createdAt || 0);
+      return b.createdAt - a.createdAt;
     });
 }
 
-export async function editAnnouncement(
-  announcementId,
-  data,
-  actor
-) {
-  requireStaff(actor);
+export async function getAnnouncement(id) {
+  validateId(id);
 
-  if (!announcementId) {
-    throw new Error("شناسه اطلاعیه معتبر نیست.");
+  const item = await getRecord(`${PATH}/${id}`);
+
+  if (!item) return null;
+
+  return normalizeAnnouncement(item);
+}
+
+export async function editAnnouncement(id, data, actor) {
+  requireStaff(actor);
+  validateId(id);
+
+  const existing = await getRecord(`${PATH}/${id}`);
+
+  if (!existing) {
+    throw new Error("اطلاعیه پیدا نشد.");
   }
 
   const content = validateAnnouncement(data);
 
-  await updateData(`${PATH}/${announcementId}`, {
+  await updateData(`${PATH}/${id}`, {
     ...content,
     updatedAt: Date.now(),
     updatedBy: actor.uid
@@ -96,18 +130,21 @@ export async function editAnnouncement(
   return true;
 }
 
-export async function pinAnnouncement(
-  announcementId,
-  pinned,
-  actor
-) {
+export async function pinAnnouncement(id, pinned, actor) {
   requireStaff(actor);
+  validateId(id);
 
-  if (!announcementId || typeof pinned !== "boolean") {
-    throw new Error("اطلاعات سنجاق‌کردن معتبر نیست.");
+  if (typeof pinned !== "boolean") {
+    throw new Error("وضعیت سنجاق باید مشخص باشد.");
   }
 
-  await updateData(`${PATH}/${announcementId}`, {
+  const existing = await getRecord(`${PATH}/${id}`);
+
+  if (!existing) {
+    throw new Error("اطلاعیه پیدا نشد.");
+  }
+
+  await updateData(`${PATH}/${id}`, {
     pinned,
     updatedAt: Date.now(),
     updatedBy: actor.uid
@@ -116,37 +153,59 @@ export async function pinAnnouncement(
   return true;
 }
 
-export async function archiveAnnouncement(
-  announcementId,
-  archived,
-  actor
-) {
+export async function archiveAnnouncement(id, actor) {
   requireStaff(actor);
+  validateId(id);
 
-  if (!announcementId || typeof archived !== "boolean") {
-    throw new Error("اطلاعات آرشیو معتبر نیست.");
+  const existing = await getRecord(`${PATH}/${id}`);
+
+  if (!existing) {
+    throw new Error("اطلاعیه پیدا نشد.");
   }
 
-  await updateData(`${PATH}/${announcementId}`, {
-    archived,
-    updatedAt: Date.now(),
-    updatedBy: actor.uid
+  await updateData(`${PATH}/${id}`, {
+    archived: true,
+    pinned: false,
+    archivedAt: Date.now(),
+    archivedBy: actor.uid,
+    updatedAt: Date.now()
   });
 
   return true;
 }
 
-export async function removeAnnouncement(
-  announcementId,
-  actor
-) {
+export async function restoreAnnouncement(id, actor) {
   requireStaff(actor);
+  validateId(id);
 
-  if (!announcementId) {
-    throw new Error("شناسه اطلاعیه معتبر نیست.");
+  const existing = await getRecord(`${PATH}/${id}`);
+
+  if (!existing) {
+    throw new Error("اطلاعیه پیدا نشد.");
   }
 
-  await deleteData(`${PATH}/${announcementId}`);
+  await updateData(`${PATH}/${id}`, {
+    archived: false,
+    restoredAt: Date.now(),
+    restoredBy: actor.uid,
+    updatedAt: Date.now()
+  });
 
   return true;
 }
+
+export async function removeAnnouncement(id, actor) {
+  requireStaff(actor);
+  validateId(id);
+
+  const existing = await getRecord(`${PATH}/${id}`);
+
+  if (!existing) {
+    throw new Error("اطلاعیه پیدا نشد.");
+  }
+
+  await deleteData(`${PATH}/${id}`);
+
+  return true;
+}
+  
