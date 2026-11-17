@@ -4,6 +4,7 @@ import { getAllRecords } from "./database.js";
 function requireStaff(actor) {
   if (
     !actor?.uid ||
+    actor.active !== true ||
     !["admin", "leader"].includes(actor.role)
   ) {
     throw new Error("اجازه خروجی گرفتن ندارید.");
@@ -13,7 +14,7 @@ function requireStaff(actor) {
 function safeValue(value) {
   const text = String(value ?? "");
 
-  // جلوگیری از اجرای فرمول‌های مخرب در نرم‌افزارهای صفحه‌گسترده
+  // جلوگیری از اجرای فرمول در نرم‌افزارهای صفحه‌گسترده
   if (/^[\s]*[=+\-@]/.test(text)) {
     return `'${text}`;
   }
@@ -34,11 +35,25 @@ function createCSV(headers, rows) {
   return "\uFEFF" + lines.join("\r\n");
 }
 
-// خروجی فهرست اعضا
+function safeDate(value) {
+  if (!value) return "";
+
+  const date = new Date(value);
+
+  return Number.isNaN(date.getTime())
+    ? String(value)
+    : date.toLocaleDateString("fa-IR");
+}
+
+function safeArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+// خروجی اعضا
 export async function exportMembersCSV(actor) {
   requireStaff(actor);
 
-  const members = await getAllRecords("users");
+  const members = safeArray(await getAllRecords("users"));
 
   const headers = [
     "UID",
@@ -53,19 +68,17 @@ export async function exportMembersCSV(actor) {
     member.gameName || "",
     member.role || "",
     member.active === true ? "فعال" : "غیرفعال",
-    member.createdAt
-      ? new Date(member.createdAt).toLocaleDateString("fa-IR")
-      : ""
+    safeDate(member.createdAt)
   ]);
 
   return createCSV(headers, rows);
 }
 
-// خروجی تاریخچه جنگ‌ها
+// خروجی جنگ‌ها
 export async function exportWarsCSV(actor) {
   requireStaff(actor);
 
-  const wars = await getAllRecords("wars");
+  const wars = safeArray(await getAllRecords("wars"));
 
   const headers = [
     "شناسه",
@@ -80,7 +93,7 @@ export async function exportWarsCSV(actor) {
     war.id || "",
     war.opponent || "",
     war.type || "",
-    war.date || "",
+    safeDate(war.date),
     war.status || "",
     war.result || ""
   ]);
@@ -88,11 +101,138 @@ export async function exportWarsCSV(actor) {
   return createCSV(headers, rows);
 }
 
-// دانلود فایل CSV در مرورگر
-export function downloadCSV(content, filename = "invictus-export.csv") {
+// خروجی درخواست‌های عضویت
+export async function exportApplicationsCSV(actor) {
+  requireStaff(actor);
+
+  const applications = safeArray(
+    await getAllRecords("applications")
+  );
+
+  const headers = [
+    "شناسه",
+    "نام",
+    "نام بازی",
+    "UID بازی",
+    "نوع درخواست",
+    "وضعیت",
+    "تاریخ ثبت"
+  ];
+
+  const rows = applications.map(item => [
+    item.id || "",
+    item.realName || item.name || "",
+    item.gameName || "",
+    item.gameUid || item.codmUid || "",
+    item.type || "",
+    item.status || "",
+    safeDate(item.createdAt)
+  ]);
+
+  return createCSV(headers, rows);
+}
+
+// خروجی مسابقات
+export async function exportTournamentsCSV(actor) {
+  requireStaff(actor);
+
+  const tournaments = safeArray(
+    await getAllRecords("tournaments")
+  );
+
+  const headers = [
+    "شناسه",
+    "عنوان",
+    "وضعیت",
+    "نوع",
+    "تاریخ شروع",
+    "تاریخ پایان"
+  ];
+
+  const rows = tournaments.map(item => [
+    item.id || "",
+    item.title || item.name || "",
+    item.status || "",
+    item.type || "",
+    safeDate(item.startDate),
+    safeDate(item.endDate)
+  ]);
+
+  return createCSV(headers, rows);
+}
+
+// خروجی تیم‌ها
+export async function exportTeamsCSV(actor) {
+  requireStaff(actor);
+
+  const teams = safeArray(await getAllRecords("teams"));
+
+  const headers = [
+    "شناسه",
+    "نام تیم",
+    "وضعیت",
+    "کاپیتان",
+    "تعداد اعضا"
+  ];
+
+  const rows = teams.map(item => [
+    item.id || "",
+    item.name || item.title || "",
+    item.active === false ? "غیرفعال" : "فعال",
+    item.captainUid || "",
+    Array.isArray(item.members)
+      ? item.members.length
+      : 0
+  ]);
+
+  return createCSV(headers, rows);
+}
+
+// خروجی جوایز
+export async function exportRewardsCSV(actor) {
+  requireStaff(actor);
+
+  const rewards = safeArray(await getAllRecords("rewards"));
+
+  const headers = [
+    "شناسه",
+    "نام جایزه",
+    "هزینه",
+    "موجودی",
+    "وضعیت"
+  ];
+
+  const rows = rewards.map(item => [
+    item.id || "",
+    item.name || item.title || "",
+    item.cost ?? "",
+    item.stock ?? "",
+    item.active === true ? "فعال" : "غیرفعال"
+  ]);
+
+  return createCSV(headers, rows);
+}
+
+// دانلود CSV
+export function downloadCSV(
+  content,
+  filename = "invictus-export.csv"
+) {
   if (typeof content !== "string") {
     throw new Error("محتوای خروجی معتبر نیست.");
   }
+
+  if (
+    typeof document === "undefined" ||
+    typeof URL === "undefined" ||
+    typeof Blob === "undefined"
+  ) {
+    throw new Error("دانلود فایل در این محیط پشتیبانی نمی‌شود.");
+  }
+
+  const safeFilename = String(filename)
+    .replace(/[\\/:*?"<>|]/g, "_")
+    .slice(0, 100) || "invictus-export.csv";
 
   const blob = new Blob([content], {
     type: "text/csv;charset=utf-8;"
@@ -102,12 +242,14 @@ export function downloadCSV(content, filename = "invictus-export.csv") {
   const link = document.createElement("a");
 
   link.href = url;
-  link.download = filename;
+  link.download = safeFilename;
   link.style.display = "none";
 
   document.body.appendChild(link);
   link.click();
   link.remove();
 
-  URL.revokeObjectURL(url);
-}
+  // کمی تأخیر برای جلوگیری از لغو زودهنگام دانلود در بعضی مرورگرها
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+    
