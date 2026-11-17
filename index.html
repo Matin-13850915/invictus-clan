@@ -28,11 +28,13 @@
           در حال اتصال...
         </span>
 
-        <button id="mobile-menu-toggle"
-                class="icon-button"
-                type="button"
-                aria-label="باز کردن منو"
-                hidden>
+        <button
+          id="mobile-menu-toggle"
+          class="icon-button"
+          type="button"
+          aria-label="باز کردن منو"
+          aria-expanded="false"
+          aria-controls="sidebar">
           ☰
         </button>
       </div>
@@ -105,16 +107,18 @@
               ورود به پنل
             </button>
 
-            <button id="forgot-password"
-                    class="text-button"
-                    type="button">
+            <button
+              id="forgot-password"
+              class="text-button"
+              type="button">
               فراموشی رمز عبور؟
             </button>
 
-            <p id="login-message"
-               class="form-message"
-               role="status"
-               aria-live="polite"></p>
+            <p
+              id="login-message"
+              class="form-message"
+              role="status"
+              aria-live="polite"></p>
           </form>
 
           <div class="auth-note">
@@ -123,7 +127,7 @@
         </div>
       </section>
 
-      <!-- APPLICATION -->
+      <!-- DASHBOARD -->
       <section id="dashboard-view" class="dashboard-layout" hidden>
 
         <aside id="sidebar" class="sidebar">
@@ -144,8 +148,10 @@
             </div>
           </div>
 
-          <nav id="main-nav" class="main-nav"
-               aria-label="منوی اصلی">
+          <nav
+            id="main-nav"
+            class="main-nav"
+            aria-label="منوی اصلی">
 
             <a href="#home" data-page="home">خانه</a>
             <a href="#applications" data-page="applications">درخواست‌های عضویت</a>
@@ -170,7 +176,10 @@
 
           </nav>
 
-          <button id="logout-button" class="logout-button" type="button">
+          <button
+            id="logout-button"
+            class="logout-button"
+            type="button">
             خروج از حساب
           </button>
 
@@ -185,14 +194,15 @@
             </div>
           </header>
 
-          <div id="page-alerts"
-               aria-live="polite"></div>
+          <div
+            id="page-alerts"
+            aria-live="polite"></div>
 
-          <main id="page-content" class="page-content">
+          <div id="page-content" class="page-content">
             <div class="loading-state">
               در حال بارگذاری اطلاعات...
             </div>
-          </main>
+          </div>
 
         </section>
       </section>
@@ -201,10 +211,11 @@
 
     <div id="global-modal-root"></div>
 
-    <div id="toast-region"
-         role="status"
-         aria-live="polite"
-         aria-atomic="true"></div>
+    <div
+      id="toast-region"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"></div>
 
     <footer class="site-footer">
       <span>łK¹・INVICTUS</span>
@@ -215,5 +226,5 @@
 
   <script type="module" src="assets/js/app.js"></script>
 </body>
-              </html>
-              
+                                                               </html>
+                                                               
