@@ -164,8 +164,10 @@ export async function renderActivity(container, user) {
         staffActions.appendChild(
           makeButton("مشاهده آمار اعضا", async () => {
             try {
-              const summaries = await getMemberActivityStats(user);
-              const users = await getRecentClanActivity(user, 30);
+              const [summaries, recentActivities] = await Promise.all([
+                getMemberActivityStats(user),
+                getRecentClanActivity(user, 30)
+              ]);
 
               const result = $("div", "card activity-report");
 
@@ -200,17 +202,20 @@ export async function renderActivity(container, user) {
                 $("h3", "section-title", "۳۰ فعالیت اخیر کلن")
               );
 
-              if (!users.length) {
+              if (!recentActivities.length) {
                 result.appendChild(
                   $("p", "empty-state", "فعالیت اخیری وجود ندارد.")
                 );
               } else {
-                users.forEach(item => {
+                recentActivities.forEach(item => {
                   result.appendChild(createActivityCard(item));
                 });
               }
 
-              staffSection.querySelector(".activity-report")?.remove();
+              staffSection
+                .querySelector(".activity-report")
+                ?.remove();
+
               staffSection.appendChild(result);
 
             } catch (error) {
@@ -246,5 +251,5 @@ export async function renderActivity(container, user) {
   };
 
   await load();
-  }
-        
+}
+  
