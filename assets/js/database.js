@@ -14,9 +14,6 @@ import {
   runTransaction
 } from "./firebase.js";
 
-/**
- * اعتبارسنجی مسیرهای Realtime Database
- */
 function validatePath(path) {
   if (
     typeof path !== "string" ||
@@ -30,13 +27,17 @@ function validatePath(path) {
 
   const parts = path.split("/");
 
-  for (const part of parts) {
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+
     if (
       !part ||
       part === "." ||
       part === ".." ||
-      /[#$[\]]/.test(part) ||
-      (part.includes(".") && part !== ".info")
+      ["#", "$", "[", "]", "/"].some(char =>
+        part.includes(char)
+      ) ||
+      (part.includes(".") && !(i === 0 && part === ".info"))
     ) {
       throw new Error("بخش نامعتبر در مسیر دیتابیس وجود دارد.");
     }
@@ -45,9 +46,6 @@ function validatePath(path) {
   return path;
 }
 
-/**
- * اعتبارسنجی مقدار رکورد
- */
 function validateObject(value, message) {
   if (
     !value ||
@@ -58,78 +56,41 @@ function validateObject(value, message) {
   }
 }
 
-/**
- * خواندن اطلاعات
- */
 export async function readData(path) {
   const snapshot = await get(
     ref(db, validatePath(path))
   );
 
-  return snapshot.exists()
-    ? snapshot.val()
-    : null;
+  return snapshot.exists() ? snapshot.val() : null;
 }
 
-/**
- * نوشتن کامل اطلاعات
- */
 export async function writeData(path, value) {
-  await set(
-    ref(db, validatePath(path)),
-    value
-  );
-
+  await set(ref(db, validatePath(path)), value);
   return true;
 }
 
-/**
- * ویرایش بخشی از اطلاعات
- */
 export async function updateData(path, values) {
-  validateObject(
-    values,
-    "اطلاعات ارسالی معتبر نیست."
-  );
+  validateObject(values, "اطلاعات ارسالی معتبر نیست.");
 
   if (!Object.keys(values).length) {
     throw new Error("هیچ اطلاعاتی برای ویرایش ارسال نشده است.");
   }
 
-  await update(
-    ref(db, validatePath(path)),
-    values
-  );
-
+  await update(ref(db, validatePath(path)), values);
   return true;
 }
 
-/**
- * سازگاری با فایل‌هایی که updateRecord وارد می‌کنند
- */
 export async function updateRecord(path, values) {
   return updateData(path, values);
 }
 
-/**
- * حذف اطلاعات
- */
 export async function deleteData(path) {
-  await remove(
-    ref(db, validatePath(path))
-  );
-
+  await remove(ref(db, validatePath(path)));
   return true;
 }
 
-/**
- * ایجاد رکورد جدید
- */
 export async function createRecord(path, value) {
-  validateObject(
-    value,
-    "اطلاعات رکورد معتبر نیست."
-  );
+  validateObject(value, "اطلاعات رکورد معتبر نیست.");
 
   const newRecord = push(
     ref(db, validatePath(path))
@@ -146,15 +107,10 @@ export async function createRecord(path, value) {
   return newRecord.key;
 }
 
-/**
- * دریافت یک رکورد
- */
 export async function getRecord(path) {
   const data = await readData(path);
 
-  if (data === null) {
-    return null;
-  }
+  if (data === null) return null;
 
   if (
     typeof data !== "object" ||
@@ -169,9 +125,6 @@ export async function getRecord(path) {
   };
 }
 
-/**
- * دریافت تمام رکوردهای یک مجموعه
- */
 export async function getAllRecords(path) {
   const data = await readData(path);
 
@@ -193,14 +146,13 @@ export async function getAllRecords(path) {
     }));
 }
 
-/**
- * جستجو بر اساس یک فیلد
- */
 export async function findByField(path, field, value) {
   if (
     typeof field !== "string" ||
     !field.trim() ||
-    /[.#$[\]/]/.test(field)
+    [".", "#", "$", "[", "]", "/"].some(char =>
+      field.includes(char)
+    )
   ) {
     throw new Error("نام فیلد معتبر نیست.");
   }
@@ -213,9 +165,7 @@ export async function findByField(path, field, value) {
 
   const snapshot = await get(recordsQuery);
 
-  if (!snapshot.exists()) {
-    return [];
-  }
+  if (!snapshot.exists()) return [];
 
   return Object.entries(snapshot.val())
     .map(([id, item]) => ({
@@ -226,9 +176,6 @@ export async function findByField(path, field, value) {
     }));
 }
 
-/**
- * گوش دادن زنده به تغییرات دیتابیس
- */
 export function listenToData(
   path,
   callback,
@@ -246,9 +193,7 @@ export function listenToData(
     ref(db, validatePath(path)),
     snapshot => {
       callback(
-        snapshot.exists()
-          ? snapshot.val()
-          : null
+        snapshot.exists() ? snapshot.val() : null
       );
     },
     error => {
@@ -257,13 +202,7 @@ export function listenToData(
   );
 }
 
-/**
- * تغییر اتمیک مقدار عددی
- */
-export async function changeNumberAtomically(
-  path,
-  amount
-) {
+export async function changeNumberAtomically(path, amount) {
   if (
     typeof amount !== "number" ||
     !Number.isFinite(amount)
@@ -275,9 +214,7 @@ export async function changeNumberAtomically(
     ref(db, validatePath(path)),
     currentValue => {
       const current =
-        currentValue === null
-          ? 0
-          : Number(currentValue);
+        currentValue === null ? 0 : Number(currentValue);
 
       if (!Number.isFinite(current)) {
         return;
@@ -292,5 +229,5 @@ export async function changeNumberAtomically(
   }
 
   return result.snapshot.val();
-  }
-  
+                                }
+    
