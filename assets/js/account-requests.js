@@ -3,10 +3,12 @@ import {
   createRecord,
   getRecord,
   getAllRecords,
-  updateRecord
+  updateRecord,
+  updateData
 } from "./database.js";
 
 const REQUESTS_PATH = "accountRequests";
+const PROFILES_PATH = "profiles";
 
 const ALLOWED_FIELDS = [
   "gameName",
@@ -16,11 +18,13 @@ const ALLOWED_FIELDS = [
   "bio"
 ];
 
-const ALLOWED_STATUSES = [
-  "pending",
-  "approved",
-  "rejected"
-];
+const LIMITS = {
+  gameName: 40,
+  gameLevel: 3,
+  telegram: 100,
+  rubika: 100,
+  bio: 300
+};
 
 function requireUser(actor) {
   if (!actor?.uid) {
@@ -36,15 +40,49 @@ function requireStaff(actor) {
   }
 }
 
-function cleanText(value, maxLength) {
+function validateRequestId(id) {
+  if (
+    typeof id !== "string" ||
+    !/^[A-Za-z0-9_-]{1,128}$/.test(id)
+  ) {
+    throw new Error("شناسه درخواست معتبر نیست.");
+  }
+}
+
+function cleanText(value, maxLength, allowEmpty = false) {
   if (typeof value !== "string") {
     throw new Error("اطلاعات واردشده معتبر نیست.");
   }
 
   const result = value.trim();
 
-  if (!result || result.length > maxLength) {
-    throw new Error(`متن باید بین ۱ تا ${maxLength} کاراکتر باشد.`);
+  if (
+    (!allowEmpty && !result) ||
+    result.length > maxLength
+  ) {
+    throw new Error(
+      `متن باید حداکثر ${maxLength} کاراکتر باشد.`
+    );
+  }
+
+  return result;
+}
+
+function normalizeFieldValue(field, value) {
+  const result = cleanText(value, LIMITS[field]);
+
+  if (field === "gameLevel") {
+    const level = Number(result);
+
+    if (
+      !Number.isInteger(level) ||
+      level < 1 ||
+      level > 500
+    ) {
+      throw new Error("لول بازی باید عددی بین ۱ تا ۵۰۰ باشد.");
+    }
+
+    return level;
   }
 
   return result;
@@ -54,55 +92,79 @@ function cleanText(value, maxLength) {
 export async function createAccountRequest(data, actor) {
   requireUser(actor);
 
+  if (!data || typeof data !== "object") {
+    throw new Error("اطلاعات درخواست معتبر نیست.");
+  }
+
   if (!ALLOWED_FIELDS.includes(data.field)) {
     throw new Error("امکان تغییر این فیلد وجود ندارد.");
   }
 
-  const limits = {
-    gameName: 40,
-    gameLevel: 3,
-    telegram: 100,
-    rubika: 100,
-    bio: 300
-  };
+  const field = data.field;
 
-  const request = {
-    uid: actor.uid,
-    field: data.field,
-    oldValue: cleanText(data.oldValue, limits[data.field]),
-    requestedValue: cleanText(
-      data.requestedValue,
-      limits[data.field]
-    ),
-    reason: typeof data.reason === "string"
-      ? data.reason.trim().slice(0, 500)
-      : "",
-    status: "pending",
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-    reviewedBy: null,
-    reviewNote: ""
-  };
+  const oldValue = cleanText(
+    String(data.oldValue ?? ""),
+    LIMITS[field],
+    true
+  );
 
-  if (request.oldValue === request.requestedValue) {
+  const requestedValue = normalizeFieldValue(
+    field,
+    data.requestedValue
+  );
+
+  if (
+    String(oldValue) === String(requestedValue)
+  ) {
     throw new Error("مقدار جدید با مقدار فعلی یکسان است.");
+  }
+
+  const profile = await getRecord(
+    `${PROFILES_PATH}/${actor.uid}`
+  );
+
+  if (!profile) {
+    throw new Error("پروفایل شما پیدا نشد.");
+  }
+
+  const actualValue = String(profile[field] ?? "");
+
+  if (actualValue !== oldValue) {
+    throw new Error(
+      "اطلاعات فعلی پروفایل تغییر کرده است. صفحه را تازه‌سازی کنید."
+    );
   }
 
   const existing = await getAllRecords(REQUESTS_PATH);
 
   const hasPending = existing.some(item =>
     item.uid === actor.uid &&
-    item.field === data.field &&
+    item.field === field &&
     item.status === "pending"
   );
 
   if (hasPending) {
-    throw new Error("برای این بخش یک درخواست در انتظار بررسی دارید.");
+    throw new Error(
+      "برای این بخش یک درخواست در انتظار بررسی دارید."
+    );
   }
 
-  const saved = await createRecord(REQUESTS_PATH, request);
+  const now = Date.now();
 
-  return saved;
+  return await createRecord(REQUESTS_PATH, {
+    uid: actor.uid,
+    field,
+    oldValue,
+    requestedValue,
+    reason: typeof data.reason === "string"
+      ? data.reason.trim().slice(0, 500)
+      : "",
+    status: "pending",
+    createdAt: now,
+    updatedAt: now,
+    reviewedBy: null,
+    reviewNote: ""
+  });
 }
 
 // مشاهده درخواست‌های شخصی
@@ -113,7 +175,9 @@ export async function getMyAccountRequests(actor) {
 
   return requests
     .filter(item => item.uid === actor.uid)
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    .sort(
+      (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
+    );
 }
 
 // مشاهده همه درخواست‌ها برای مدیریت
@@ -135,14 +199,15 @@ export async function reviewAccountRequest(
   actor
 ) {
   requireStaff(actor);
+  validateRequestId(requestId);
 
   if (!["approved", "rejected"].includes(decision)) {
     throw new Error("تصمیم انتخاب‌شده معتبر نیست.");
   }
 
-  const request = await getRecord(
-    `${REQUESTS_PATH}/${requestId}`
-  );
+  const requestPath = `${REQUESTS_PATH}/${requestId}`;
+
+  const request = await getRecord(requestPath);
 
   if (!request) {
     throw new Error("درخواست پیدا نشد.");
@@ -152,7 +217,41 @@ export async function reviewAccountRequest(
     throw new Error("این درخواست قبلاً بررسی شده است.");
   }
 
-  await updateRecord(`${REQUESTS_PATH}/${requestId}`, {
+  if (!ALLOWED_FIELDS.includes(request.field)) {
+    throw new Error("فیلد درخواست معتبر نیست.");
+  }
+
+  if (decision === "approved") {
+    const profilePath = `${PROFILES_PATH}/${request.uid}`;
+    const profile = await getRecord(profilePath);
+
+    if (!profile) {
+      throw new Error("پروفایل عضو پیدا نشد.");
+    }
+
+    const currentValue = String(
+      profile[request.field] ?? ""
+    );
+
+    if (currentValue !== String(request.oldValue ?? "")) {
+      throw new Error(
+        "اطلاعات پروفایل از زمان ثبت درخواست تغییر کرده است؛ درخواست را بررسی مجدد کنید."
+      );
+    }
+
+    const newValue = normalizeFieldValue(
+      request.field,
+      String(request.requestedValue)
+    );
+
+    await updateData(profilePath, {
+      [request.field]: newValue,
+      updatedAt: Date.now(),
+      updatedBy: actor.uid
+    });
+  }
+
+  await updateRecord(requestPath, {
     status: decision,
     reviewedBy: actor.uid,
     reviewNote: typeof reviewNote === "string"
@@ -163,4 +262,4 @@ export async function reviewAccountRequest(
   });
 
   return true;
-    }
+}
