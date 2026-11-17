@@ -86,13 +86,11 @@ export function canAccessPage(user, page) {
 
   const access = {
     home: ALL_ROLES,
-
     applications: [
       ROLES.ADMIN,
       ROLES.LEADER,
       ROLES.TESTER
     ],
-
     members: ALL_ROLES,
     announcements: ALL_ROLES,
     wars: ALL_ROLES,
@@ -105,19 +103,16 @@ export function canAccessPage(user, page) {
     seasons: ALL_ROLES,
     rewards: ALL_ROLES,
     tickets: ALL_ROLES,
-
     archive: MANAGEMENT_ROLES,
     statistics: MANAGEMENT_ROLES,
     audit: MANAGEMENT_ROLES,
     staff: MANAGEMENT_ROLES,
-
     activity: ALL_ROLES,
     rules: ALL_ROLES,
     settings: ALL_ROLES,
     profile: ALL_ROLES,
     notifications: ALL_ROLES,
     support: ALL_ROLES,
-
     admin: [ROLES.ADMIN]
   };
 
@@ -305,12 +300,5 @@ export function canManageBadges(user) {
 
 export function canManagePointsBalance(user) {
   return isLeaderOrAdmin(user);
-}
-
-export function canViewOwnData(user, targetUid) {
-  return (
-    isActiveUser(user) &&
-    user.uid === targetUid
-  );
     }
     
