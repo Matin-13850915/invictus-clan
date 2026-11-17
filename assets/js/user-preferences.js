@@ -1,7 +1,8 @@
 
 import {
   getRecord,
-  updateRecord
+  updateRecord,
+  writeData
 } from "./database.js";
 
 const PREFERENCES_PATH = "userPreferences";
@@ -22,10 +23,33 @@ export const DEFAULT_PREFERENCES = Object.freeze({
   }
 });
 
+const BOOLEAN_KEYS = Object.freeze([
+  "compactMode",
+  "showOnlineStatus",
+  "showProfileToMembers"
+]);
+
+const NOTIFICATION_KEYS = Object.freeze(
+  Object.keys(DEFAULT_PREFERENCES.notifications)
+);
+
 function requireUser(actor) {
-  if (!actor?.uid) {
+  if (
+    !actor ||
+    typeof actor.uid !== "string" ||
+    !actor.uid.trim()
+  ) {
     throw new Error("ابتدا وارد حساب خود شوید.");
   }
+}
+
+function cloneDefaults() {
+  return {
+    ...DEFAULT_PREFERENCES,
+    notifications: {
+      ...DEFAULT_PREFERENCES.notifications
+    }
+  };
 }
 
 function validatePreferences(changes) {
@@ -47,14 +71,10 @@ function validatePreferences(changes) {
     result.theme = changes.theme;
   }
 
-  for (const key of [
-    "compactMode",
-    "showOnlineStatus",
-    "showProfileToMembers"
-  ]) {
+  for (const key of BOOLEAN_KEYS) {
     if (changes[key] !== undefined) {
       if (typeof changes[key] !== "boolean") {
-        throw new Error(`مقدار ${key} باید روشن یا خاموش باشد.`);
+        throw new Error(`مقدار ${key} معتبر نیست.`);
       }
 
       result[key] = changes[key];
@@ -62,39 +82,77 @@ function validatePreferences(changes) {
   }
 
   if (changes.notifications !== undefined) {
+    const notifications = changes.notifications;
+
     if (
-      !changes.notifications ||
-      typeof changes.notifications !== "object" ||
-      Array.isArray(changes.notifications)
+      !notifications ||
+      typeof notifications !== "object" ||
+      Array.isArray(notifications)
     ) {
       throw new Error("تنظیمات اعلان معتبر نیست.");
     }
 
-    const allowed = Object.keys(DEFAULT_PREFERENCES.notifications);
+    const unknownKeys = Object.keys(notifications)
+      .filter(key => !NOTIFICATION_KEYS.includes(key));
+
+    if (unknownKeys.length) {
+      throw new Error("نوع اعلان ناشناخته است.");
+    }
+
     result.notifications = {};
 
-    for (const key of allowed) {
-      if (changes.notifications[key] !== undefined) {
-        if (typeof changes.notifications[key] !== "boolean") {
-          throw new Error(`تنظیم اعلان ${key} معتبر نیست.`);
+    for (const key of NOTIFICATION_KEYS) {
+      if (notifications[key] !== undefined) {
+        if (typeof notifications[key] !== "boolean") {
+          throw new Error(`وضعیت اعلان ${key} معتبر نیست.`);
         }
 
-        result.notifications[key] = changes.notifications[key];
+        result.notifications[key] = notifications[key];
       }
     }
+  }
 
-    const unknownKeys = Object.keys(changes.notifications)
-      .filter(key => !allowed.includes(key));
+  const allowedKeys = [
+    "theme",
+    ...BOOLEAN_KEYS,
+    "notifications"
+  ];
 
-    if (unknownKeys.length > 0) {
-      throw new Error("یکی از تنظیمات اعلان ناشناخته است.");
-    }
+  const unknownChanges = Object.keys(changes)
+    .filter(key => !allowedKeys.includes(key));
+
+  if (unknownChanges.length) {
+    throw new Error("یکی از تنظیمات ناشناخته است.");
   }
 
   return result;
 }
 
-// دریافت تنظیمات شخصی
+function mergePreferences(saved) {
+  const defaults = cloneDefaults();
+
+  if (
+    !saved ||
+    typeof saved !== "object" ||
+    Array.isArray(saved)
+  ) {
+    return defaults;
+  }
+
+  return {
+    ...defaults,
+    ...saved,
+    notifications: {
+      ...defaults.notifications,
+      ...(saved.notifications &&
+      typeof saved.notifications === "object" &&
+      !Array.isArray(saved.notifications)
+        ? saved.notifications
+        : {})
+    }
+  };
+}
+
 export async function getUserPreferences(actor) {
   requireUser(actor);
 
@@ -102,21 +160,17 @@ export async function getUserPreferences(actor) {
     `${PREFERENCES_PATH}/${actor.uid}`
   );
 
-  return {
-    ...DEFAULT_PREFERENCES,
-    ...(saved || {}),
-    notifications: {
-      ...DEFAULT_PREFERENCES.notifications,
-      ...(saved?.notifications || {})
-    }
-  };
+  return mergePreferences(saved);
 }
 
-// ذخیره تنظیمات شخصی
 export async function updateUserPreferences(changes, actor) {
   requireUser(actor);
 
   const validated = validatePreferences(changes);
+
+  if (!Object.keys(validated).length) {
+    throw new Error("تغییری برای ذخیره وجود ندارد.");
+  }
 
   const current = await getUserPreferences(actor);
 
@@ -130,7 +184,7 @@ export async function updateUserPreferences(changes, actor) {
     updatedAt: Date.now()
   };
 
-  await updateRecord(
+  await writeData(
     `${PREFERENCES_PATH}/${actor.uid}`,
     updated
   );
@@ -138,28 +192,21 @@ export async function updateUserPreferences(changes, actor) {
   return updated;
 }
 
-// تغییر قالب نمایش
 export async function setUserTheme(theme, actor) {
   return updateUserPreferences({ theme }, actor);
 }
 
-// روشن یا خاموش کردن یک نوع اعلان
 export async function setNotificationPreference(
   type,
   enabled,
   actor
 ) {
-  if (typeof enabled !== "boolean") {
-    throw new Error("وضعیت اعلان معتبر نیست.");
+  if (!NOTIFICATION_KEYS.includes(type)) {
+    throw new Error("نوع اعلان معتبر نیست.");
   }
 
-  if (
-    !Object.prototype.hasOwnProperty.call(
-      DEFAULT_PREFERENCES.notifications,
-      type
-    )
-  ) {
-    throw new Error("نوع اعلان معتبر نیست.");
+  if (typeof enabled !== "boolean") {
+    throw new Error("وضعیت اعلان معتبر نیست.");
   }
 
   return updateUserPreferences({
@@ -169,22 +216,18 @@ export async function setNotificationPreference(
   }, actor);
 }
 
-// بازگردانی تنظیمات به حالت پیش‌فرض
 export async function resetUserPreferences(actor) {
   requireUser(actor);
 
   const defaults = {
-    ...DEFAULT_PREFERENCES,
-    notifications: {
-      ...DEFAULT_PREFERENCES.notifications
-    },
+    ...cloneDefaults(),
     updatedAt: Date.now()
   };
 
-  await updateRecord(
+  await writeData(
     `${PREFERENCES_PATH}/${actor.uid}`,
     defaults
   );
 
   return defaults;
-}
+  }
