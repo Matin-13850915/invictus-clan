@@ -10,8 +10,12 @@ const VERSION_PATH = "system/version";
 const HISTORY_PATH = "system/versionHistory";
 
 function requireAdmin(actor) {
-  if (!actor?.uid || actor.role !== "admin") {
-    throw new Error("فقط ادمین اجازه مدیریت نسخه سایت را دارد.");
+  if (
+    !actor?.uid ||
+    actor.role !== "admin" ||
+    actor.active !== true
+  ) {
+    throw new Error("فقط ادمین فعال اجازه مدیریت نسخه سایت را دارد.");
   }
 }
 
@@ -23,7 +27,9 @@ function cleanText(value, maxLength, field) {
   const result = value.trim();
 
   if (!result || result.length > maxLength) {
-    throw new Error(`${field} باید بین ۱ تا ${maxLength} کاراکتر باشد.`);
+    throw new Error(
+      `${field} باید بین ۱ تا ${maxLength} کاراکتر باشد.`
+    );
   }
 
   return result;
@@ -32,9 +38,17 @@ function cleanText(value, maxLength, field) {
 export function validateVersion(version) {
   if (
     typeof version !== "string" ||
-    !/^\d+\.\d+\.\d+$/.test(version.trim())
+    !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(
+      version.trim()
+    )
   ) {
     throw new Error("نسخه باید به شکل 1.0.0 باشد.");
+  }
+
+  const parts = version.trim().split(".");
+
+  if (parts.some(part => !Number.isSafeInteger(Number(part)))) {
+    throw new Error("شماره نسخه بیش از محدوده مجاز است.");
   }
 
   return version.trim();
@@ -59,7 +73,11 @@ export async function getCurrentVersion() {
 export async function publishVersion(data, actor) {
   requireAdmin(actor);
 
-  if (!data || typeof data !== "object") {
+  if (
+    !data ||
+    typeof data !== "object" ||
+    Array.isArray(data)
+  ) {
     throw new Error("اطلاعات انتشار معتبر نیست.");
   }
 
@@ -88,18 +106,19 @@ export async function publishVersion(data, actor) {
     publishedBy: actor.uid
   };
 
-  const historyId = `release_${Date.now()}_${Math.random()
-    .toString(36)
-    .slice(2, 8)}`;
+  // ابتدا رکورد تاریخچه با شناسه واقعی Firebase ساخته می‌شود.
+  const historyId = await createRecord(HISTORY_PATH, release);
 
-  await createRecord(`${HISTORY_PATH}/${historyId}`, {
+  // سپس نسخه جاری به‌روزرسانی می‌شود.
+  await updateRecord(VERSION_PATH, {
     ...release,
-    id: historyId
+    historyId
   });
 
-  await updateRecord(VERSION_PATH, release);
-
-  return release;
+  return {
+    ...release,
+    historyId
+  };
 }
 
 export async function getVersionHistory(actor) {
