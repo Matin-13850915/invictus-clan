@@ -15,11 +15,34 @@ function matchesText(record, fields, searchTerm) {
   );
 }
 
+function validateFilters(filters) {
+  if (
+    !filters ||
+    typeof filters !== "object" ||
+    Array.isArray(filters)
+  ) {
+    throw new Error("فیلترهای جستجو معتبر نیستند.");
+  }
+}
+
+function isActiveFilter(value) {
+  return value === undefined ||
+    typeof value === "boolean";
+}
+
 // جستجوی اعضا
 export function searchMembers(members, searchTerm, filters = {}) {
   if (!Array.isArray(members)) return [];
 
+  validateFilters(filters);
+
+  if (!isActiveFilter(filters.active)) {
+    throw new Error("فیلتر وضعیت عضو معتبر نیست.");
+  }
+
   return members.filter(member => {
+    if (!member || typeof member !== "object") return false;
+
     const textMatch = matchesText(
       member,
       ["gameName", "displayName", "uid"],
@@ -36,11 +59,15 @@ export function searchMembers(members, searchTerm, filters = {}) {
   });
 }
 
-// جستجوی مسابقات
+// جستجوی جنگ‌ها
 export function searchWars(wars, searchTerm, filters = {}) {
   if (!Array.isArray(wars)) return [];
 
+  validateFilters(filters);
+
   return wars.filter(war => {
+    if (!war || typeof war !== "object") return false;
+
     const textMatch = matchesText(
       war,
       ["opponent", "type", "description"],
@@ -58,16 +85,26 @@ export function searchWars(wars, searchTerm, filters = {}) {
 export function searchAnnouncements(items, searchTerm) {
   if (!Array.isArray(items)) return [];
 
-  return items.filter(item =>
-    matchesText(item, ["title", "content", "authorName"], searchTerm)
-  );
+  return items.filter(item => {
+    if (!item || typeof item !== "object") return false;
+
+    return matchesText(
+      item,
+      ["title", "content", "authorName"],
+      searchTerm
+    );
+  });
 }
 
 // جستجوی درخواست‌های عضویت
 export function searchApplications(items, searchTerm, filters = {}) {
   if (!Array.isArray(items)) return [];
 
+  validateFilters(filters);
+
   return items.filter(item => {
+    if (!item || typeof item !== "object") return false;
+
     const textMatch = matchesText(
       item,
       ["gameName", "realName", "email", "uid"],
@@ -88,9 +125,15 @@ export function searchApplications(items, searchTerm, filters = {}) {
 export function searchTeams(teams, searchTerm) {
   if (!Array.isArray(teams)) return [];
 
-  return teams.filter(team =>
-    matchesText(team, ["name", "description", "type"], searchTerm)
-  );
+  return teams.filter(team => {
+    if (!team || typeof team !== "object") return false;
+
+    return matchesText(
+      team,
+      ["name", "description", "type"],
+      searchTerm
+    );
+  });
 }
 
 // جستجوی تیکت‌ها
@@ -102,11 +145,20 @@ export function searchTickets(tickets, searchTerm, actor) {
   if (!Array.isArray(tickets)) return [];
 
   const visibleTickets = tickets.filter(ticket => {
-    if (actor.role === "admin") return true;
-    if (actor.role === "leader") return true;
+    if (!ticket || typeof ticket !== "object") return false;
 
-    return ticket.uid === actor.uid ||
-      ticket.assignedTo === actor.uid;
+    if (actor.role === "admin" || actor.role === "leader") {
+      return true;
+    }
+
+    if (actor.role === "tester") {
+      return (
+        ticket.assignedTo === actor.uid ||
+        ticket.assignedTester === actor.uid
+      );
+    }
+
+    return ticket.uid === actor.uid;
   });
 
   return visibleTickets.filter(ticket =>
@@ -116,4 +168,5 @@ export function searchTickets(tickets, searchTerm, actor) {
       searchTerm
     )
   );
-}
+  }
+       
