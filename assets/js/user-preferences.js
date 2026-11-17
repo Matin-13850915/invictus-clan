@@ -1,9 +1,10 @@
 
 import {
-  getRecord,
-  updateRecord,
-  writeData
-} from "./database.js";
+  db,
+  ref,
+  get,
+  runTransaction
+} from "./firebase.js";
 
 const PREFERENCES_PATH = "userPreferences";
 
@@ -37,9 +38,9 @@ function requireUser(actor) {
   if (
     !actor ||
     typeof actor.uid !== "string" ||
-    !actor.uid.trim()
+    !/^[A-Za-z0-9_-]{1,128}$/.test(actor.uid)
   ) {
-    throw new Error("ابتدا وارد حساب خود شوید.");
+    throw new Error("ابتدا وارد حساب معتبر خود شوید.");
   }
 }
 
@@ -118,10 +119,11 @@ function validatePreferences(changes) {
     "notifications"
   ];
 
-  const unknownChanges = Object.keys(changes)
-    .filter(key => !allowedKeys.includes(key));
-
-  if (unknownChanges.length) {
+  if (
+    Object.keys(changes).some(
+      key => !allowedKeys.includes(key)
+    )
+  ) {
     throw new Error("یکی از تنظیمات ناشناخته است.");
   }
 
@@ -139,28 +141,54 @@ function mergePreferences(saved) {
     return defaults;
   }
 
+  const savedNotifications =
+    saved.notifications &&
+    typeof saved.notifications === "object" &&
+    !Array.isArray(saved.notifications)
+      ? saved.notifications
+      : {};
+
+  const notifications = {
+    ...defaults.notifications
+  };
+
+  for (const key of NOTIFICATION_KEYS) {
+    if (typeof savedNotifications[key] === "boolean") {
+      notifications[key] = savedNotifications[key];
+    }
+  }
+
   return {
     ...defaults,
-    ...saved,
-    notifications: {
-      ...defaults.notifications,
-      ...(saved.notifications &&
-      typeof saved.notifications === "object" &&
-      !Array.isArray(saved.notifications)
-        ? saved.notifications
-        : {})
-    }
+    theme: ["dark", "light", "system"].includes(saved.theme)
+      ? saved.theme
+      : defaults.theme,
+    compactMode:
+      typeof saved.compactMode === "boolean"
+        ? saved.compactMode
+        : defaults.compactMode,
+    showOnlineStatus:
+      typeof saved.showOnlineStatus === "boolean"
+        ? saved.showOnlineStatus
+        : defaults.showOnlineStatus,
+    showProfileToMembers:
+      typeof saved.showProfileToMembers === "boolean"
+        ? saved.showProfileToMembers
+        : defaults.showProfileToMembers,
+    notifications
   };
 }
 
 export async function getUserPreferences(actor) {
   requireUser(actor);
 
-  const saved = await getRecord(
-    `${PREFERENCES_PATH}/${actor.uid}`
+  const snapshot = await get(
+    ref(db, `${PREFERENCES_PATH}/${actor.uid}`)
   );
 
-  return mergePreferences(saved);
+  return mergePreferences(
+    snapshot.exists() ? snapshot.val() : null
+  );
 }
 
 export async function updateUserPreferences(changes, actor) {
@@ -172,24 +200,33 @@ export async function updateUserPreferences(changes, actor) {
     throw new Error("تغییری برای ذخیره وجود ندارد.");
   }
 
-  const current = await getUserPreferences(actor);
-
-  const updated = {
-    ...current,
-    ...validated,
-    notifications: {
-      ...current.notifications,
-      ...(validated.notifications || {})
-    },
-    updatedAt: Date.now()
-  };
-
-  await writeData(
-    `${PREFERENCES_PATH}/${actor.uid}`,
-    updated
+  const preferencesRef = ref(
+    db,
+    `${PREFERENCES_PATH}/${actor.uid}`
   );
 
-  return updated;
+  const result = await runTransaction(
+    preferencesRef,
+    currentValue => {
+      const current = mergePreferences(currentValue);
+
+      return {
+        ...current,
+        ...validated,
+        notifications: {
+          ...current.notifications,
+          ...(validated.notifications || {})
+        },
+        updatedAt: Date.now()
+      };
+    }
+  );
+
+  if (!result.committed) {
+    throw new Error("ذخیره تنظیمات انجام نشد.");
+  }
+
+  return mergePreferences(result.snapshot.val());
 }
 
 export async function setUserTheme(theme, actor) {
@@ -219,15 +256,25 @@ export async function setNotificationPreference(
 export async function resetUserPreferences(actor) {
   requireUser(actor);
 
-  const defaults = {
-    ...cloneDefaults(),
-    updatedAt: Date.now()
-  };
-
-  await writeData(
-    `${PREFERENCES_PATH}/${actor.uid}`,
-    defaults
+  const preferencesRef = ref(
+    db,
+    `${PREFERENCES_PATH}/${actor.uid}`
   );
 
-  return defaults;
+  const defaults = cloneDefaults();
+
+  const result = await runTransaction(
+    preferencesRef,
+    () => ({
+      ...defaults,
+      updatedAt: Date.now()
+    })
+  );
+
+  if (!result.committed) {
+    throw new Error("بازنشانی تنظیمات انجام نشد.");
   }
+
+  return mergePreferences(result.snapshot.val());
+    }
+  
