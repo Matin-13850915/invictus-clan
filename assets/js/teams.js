@@ -1,300 +1,553 @@
 import {
-  createRecord,
-  readData,
-  updateData,
-  deleteData
-} from "./database.js";
+  getTeams,
+  createTeam,
+  updateTeam,
+  addTeamMember,
+  removeTeamMember,
+  setTeamCaptain,
+  deactivateTeam,
+  activateTeam,
+  deleteTeam
+} from "../teams.js";
 
-import { normalizeText } from "./utils.js";
+import { readData } from "../database.js";
 
-const PATH = "teams";
+const $ = (tag, className = "", text = "") => {
+  const node = document.createElement(tag);
 
-function requireStaff(actor) {
-  if (
-    !actor?.uid ||
-    actor.active !== true ||
-    !["admin", "leader"].includes(actor.role)
-  ) {
-    throw new Error("فقط لیدر و ادمین فعال اجازه مدیریت تیم‌ها را دارند.");
+  if (className) node.className = className;
+
+  if (text !== undefined && text !== null) {
+    node.textContent = String(text);
   }
+
+  return node;
+};
+
+const isStaff = user =>
+  user?.active === true &&
+  ["admin", "leader"].includes(user.role);
+
+const isAdmin = user =>
+  user?.active === true &&
+  user.role === "admin";
+
+const TYPE_LABELS = {
+  MP: "Multiplayer",
+  BR: "Battle Royale",
+  BOTH: "MP و BR"
+};
+
+function showMessage(container, message, type = "info") {
+  const box = $("div", `card team-message ${type}`, message);
+  container.prepend(box);
 }
 
-function requireAdmin(actor) {
-  if (
-    !actor?.uid ||
-    actor.active !== true ||
-    actor.role !== "admin"
-  ) {
-    throw new Error("این عملیات فقط برای ادمین فعال مجاز است.");
-  }
+function createButton(text, className, handler) {
+  const button = $("button", className, text);
+  button.type = "button";
+  button.addEventListener("click", handler);
+  return button;
 }
 
-function validateId(value, label = "شناسه") {
-  if (
-    typeof value !== "string" ||
-    !/^[A-Za-z0-9_-]{1,128}$/.test(value)
-  ) {
-    throw new Error(`${label} معتبر نیست.`);
-  }
-
-  return value;
+function createField(labelText, input) {
+  const wrapper = $("label", "team-field");
+  wrapper.append($("span", "", labelText), input);
+  return wrapper;
 }
 
-function validateTeam(data) {
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
-    throw new Error("اطلاعات تیم معتبر نیست.");
-  }
-
-  const name = normalizeText(String(data.name || "")).trim();
-  const description = normalizeText(
-    String(data.description || "")
-  ).trim();
-
-  const type = String(data.type || "").trim().toUpperCase();
-
-  if (name.length < 2 || name.length > 40) {
-    throw new Error("نام تیم باید بین ۲ تا ۴۰ حرف باشد.");
-  }
-
-  if (description.length > 300) {
-    throw new Error("توضیحات تیم حداکثر ۳۰۰ حرف است.");
-  }
-
-  if (!["MP", "BR", "BOTH"].includes(type)) {
-    throw new Error("نوع تیم معتبر نیست.");
-  }
-
-  return { name, description, type };
+function createInput(placeholder = "", value = "") {
+  const input = $("input", "team-input");
+  input.type = "text";
+  input.placeholder = placeholder;
+  input.value = value;
+  return input;
 }
 
-function validateMemberUid(uid) {
-  return validateId(uid, "شناسه عضو");
-}
+function createSelect(options, selected = "") {
+  const select = $("select", "team-input");
 
-export async function createTeam(data, actor) {
-  requireStaff(actor);
-
-  const team = validateTeam(data);
-
-  const captainUid = data.captainUid
-    ? validateMemberUid(data.captainUid)
-    : null;
-
-  const members = {};
-
-  if (captainUid) {
-    members[captainUid] = {
-      joinedAt: Date.now(),
-      addedBy: actor.uid
-    };
-  }
-
-  return createRecord(PATH, {
-    ...team,
-    captainUid,
-    members,
-    active: true,
-    createdBy: actor.uid,
-    createdAt: Date.now(),
-    updatedAt: Date.now()
+  options.forEach(([value, label]) => {
+    const option = $("option", "", label);
+    option.value = value;
+    option.selected = value === selected;
+    select.appendChild(option);
   });
+
+  return select;
 }
 
-export async function getTeams(options = {}, actor = null) {
-  const includeInactive = options.includeInactive === true;
+function normalizeName(value) {
+  return String(value || "")
+    .trim()
+    .toLocaleLowerCase("fa")
+    .replace(/ي/g, "ی")
+    .replace(/ك/g, "ک");
+}
 
-  if (includeInactive) {
-    requireStaff(actor);
+function getMemberName(member) {
+  return (
+    member.displayName ||
+    member.gameName ||
+    member.uid ||
+    "عضو بدون نام"
+  );
+}
+
+function formatDate(value) {
+  const timestamp = Number(value);
+
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return "ثبت نشده";
   }
 
-  const data = await readData(PATH);
+  return new Intl.DateTimeFormat("fa-IR", {
+    dateStyle: "medium"
+  }).format(new Date(timestamp));
+}
 
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
+async function loadMembers(user) {
+  if (!isStaff(user)) {
     return [];
   }
 
-  return Object.entries(data)
-    .filter(([, team]) =>
-      team &&
-      typeof team === "object" &&
-      !Array.isArray(team) &&
-      !team.deletedAt
-    )
-    .map(([id, team]) => ({ ...team, id }))
-    .filter(team => {
-      if (!includeInactive && team.active !== true) {
-        return false;
-      }
+  const [usersData, rolesData] = await Promise.all([
+    readData("users"),
+    readData("roles")
+  ]);
 
-      if (options.type && team.type !== options.type) {
-        return false;
-      }
+  const users =
+    usersData && typeof usersData === "object"
+      ? usersData
+      : {};
 
-      return true;
+  const roles =
+    rolesData && typeof rolesData === "object"
+      ? rolesData
+      : {};
+
+  const ids = new Set([
+    ...Object.keys(users),
+    ...Object.keys(roles)
+  ]);
+
+  return [...ids]
+    .map(uid => {
+      const profile = users[uid] || {};
+      const roleInfo = roles[uid] || {};
+
+      return {
+        ...roleInfo,
+        ...profile,
+        uid,
+        role: roleInfo.role || profile.role || "member"
+      };
     })
+    .filter(member =>
+      member.uid &&
+      member.active === true &&
+      member.status !== "banned" &&
+      member.status !== "suspended"
+    )
     .sort((a, b) =>
-      String(a.name || "").localeCompare(
-        String(b.name || ""),
-        "fa"
-      )
+      getMemberName(a).localeCompare(getMemberName(b), "fa")
     );
 }
 
-export async function getTeam(teamId) {
-  const id = validateId(teamId, "شناسه تیم");
-  const team = await readData(`${PATH}/${id}`);
+function createTeamForm(container, user, members, onSaved) {
+  if (!isStaff(user)) return;
 
-  if (!team || team.active !== true || team.deletedAt) {
-    return null;
-  }
+  const section = $("section", "card team-create-section");
 
-  return { ...team, id };
-}
+  section.appendChild(
+    $("h2", "card-title", "ساخت تیم جدید")
+  );
 
-export async function updateTeam(teamId, data, actor) {
-  requireStaff(actor);
+  const name = createInput("مثلاً INVICTUS Alpha");
 
-  const id = validateId(teamId, "شناسه تیم");
-  const teamData = validateTeam(data);
+  const description = $("textarea", "team-input");
+  description.placeholder = "توضیحات تیم";
+  description.maxLength = 300;
 
-  const existing = await readData(`${PATH}/${id}`);
+  const type = createSelect([
+    ["MP", "Multiplayer"],
+    ["BR", "Battle Royale"],
+    ["BOTH", "MP و BR"]
+  ]);
 
-  if (!existing || existing.deletedAt) {
-    throw new Error("تیم موردنظر پیدا نشد.");
-  }
+  const captain = createSelect([
+    ["", "بدون کاپیتان"],
+    ...members.map(member => [
+      member.uid,
+      getMemberName(member)
+    ])
+  ]);
 
-  await updateData(`${PATH}/${id}`, {
-    ...teamData,
-    updatedBy: actor.uid,
-    updatedAt: Date.now()
-  });
+  const form = $("form", "team-form");
 
-  return true;
-}
+  form.append(
+    createField("نام تیم", name),
+    createField("توضیحات", description),
+    createField("نوع تیم", type),
+    createField("کاپیتان اولیه", captain)
+  );
 
-export async function addTeamMember(teamId, memberUid, actor) {
-  requireStaff(actor);
+  const submit = $("button", "primary-button", "ساخت تیم");
+  submit.type = "submit";
 
-  const id = validateId(teamId, "شناسه تیم");
-  const uid = validateMemberUid(memberUid);
+  form.appendChild(submit);
 
-  const team = await readData(`${PATH}/${id}`);
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
 
-  if (!team || team.active !== true || team.deletedAt) {
-    throw new Error("تیم فعال پیدا نشد.");
-  }
+    if (name.value.trim().length < 2) {
+      showMessage(section, "نام تیم باید حداقل ۲ حرف باشد.", "error");
+      return;
+    }
 
-  if (team.members?.[uid]) {
-    throw new Error("این عضو از قبل در تیم حضور دارد.");
-  }
+    submit.disabled = true;
+    submit.textContent = "در حال ساخت...";
 
-  await updateData(`${PATH}/${id}/members`, {
-    [uid]: {
-      joinedAt: Date.now(),
-      addedBy: actor.uid
+    try {
+      await createTeam({
+        name: name.value,
+        description: description.value,
+        type: type.value,
+        captainUid: captain.value || null
+      }, user);
+
+      showMessage(section, "تیم با موفقیت ساخته شد.", "success");
+
+      form.reset();
+      await onSaved();
+
+    } catch (error) {
+      showMessage(
+        section,
+        error.message || "ساخت تیم ناموفق بود.",
+        "error"
+      );
+    } finally {
+      submit.disabled = false;
+      submit.textContent = "ساخت تیم";
     }
   });
 
-  return true;
+  section.appendChild(form);
+  container.appendChild(section);
 }
 
-export async function removeTeamMember(teamId, memberUid, actor) {
-  requireStaff(actor);
+function createTeamCard(team, user, members, onChanged) {
+  const card = $("article", "card team-card");
 
-  const id = validateId(teamId, "شناسه تیم");
-  const uid = validateMemberUid(memberUid);
+  const header = $("div", "team-card-header");
 
-  const team = await readData(`${PATH}/${id}`);
+  header.append(
+    $("h2", "card-title", team.name || "تیم بدون نام"),
+    $("span", "team-type", TYPE_LABELS[team.type] || team.type)
+  );
 
-  if (!team || !team.members?.[uid]) {
-    throw new Error("این عضو در تیم وجود ندارد.");
-  }
+  card.appendChild(header);
 
-  if (team.captainUid === uid) {
-    throw new Error("ابتدا کاپیتان جدیدی انتخاب کنید.");
-  }
+  card.append(
+    $("p", "team-description", team.description || "بدون توضیحات"),
+    $("p", "team-meta", `تاریخ ساخت: ${formatDate(team.createdAt)}`)
+  );
 
-  await deleteData(`${PATH}/${id}/members/${uid}`);
+  const memberMap =
+    team.members &&
+    typeof team.members === "object" &&
+    !Array.isArray(team.members)
+      ? team.members
+      : {};
 
-  return true;
-}
+  const memberIds = Object.keys(memberMap);
 
-export async function setTeamCaptain(teamId, captainUid, actor) {
-  requireStaff(actor);
+  const captain = members.find(
+    member => member.uid === team.captainUid
+  );
 
-  const id = validateId(teamId, "شناسه تیم");
-  const uid = validateMemberUid(captainUid);
+  card.append(
+    $("p", "team-captain",
+      `کاپیتان: ${captain ? getMemberName(captain) : "تعیین نشده"}`
+    ),
+    $("p", "team-count", `تعداد اعضا: ${memberIds.length}`)
+  );
 
-  const team = await readData(`${PATH}/${id}`);
+  const list = $("div", "team-member-list");
 
-  if (!team || team.active !== true || team.deletedAt) {
-    throw new Error("تیم فعال پیدا نشد.");
-  }
+  memberIds.forEach(uid => {
+    const member = members.find(item => item.uid === uid);
 
-  if (!team.members?.[uid]) {
-    throw new Error("کاپیتان باید عضو همین تیم باشد.");
-  }
+    const row = $("div", "team-member-row");
 
-  await updateData(`${PATH}/${id}`, {
-    captainUid: uid,
-    captainUpdatedBy: actor.uid,
-    updatedAt: Date.now()
+    row.appendChild(
+      $("span", "", member ? getMemberName(member) : "عضو ثبت‌شده")
+    );
+
+    if (isStaff(user)) {
+      if (team.captainUid !== uid) {
+        row.appendChild(
+          createButton("کاپیتان", "small-button", async () => {
+            try {
+              await setTeamCaptain(team.id, uid, user);
+              await onChanged();
+            } catch (error) {
+              showMessage(card, error.message, "error");
+            }
+          })
+        );
+      }
+
+      row.appendChild(
+        createButton("حذف از تیم", "small-button danger", async () => {
+          if (!confirm("این عضو از تیم حذف شود؟")) return;
+
+          try {
+            await removeTeamMember(team.id, uid, user);
+            await onChanged();
+          } catch (error) {
+            showMessage(card, error.message, "error");
+          }
+        })
+      );
+    }
+
+    list.appendChild(row);
   });
 
-  return true;
-}
-
-export async function deactivateTeam(teamId, actor) {
-  requireStaff(actor);
-
-  const id = validateId(teamId, "شناسه تیم");
-  const team = await readData(`${PATH}/${id}`);
-
-  if (!team || team.deletedAt) {
-    throw new Error("تیم موردنظر پیدا نشد.");
+  if (!memberIds.length) {
+    list.appendChild(
+      $("p", "empty-state", "هنوز عضوی به این تیم اضافه نشده است.")
+    );
   }
 
-  await updateData(`${PATH}/${id}`, {
-    active: false,
-    deactivatedBy: actor.uid,
-    deactivatedAt: Date.now(),
-    updatedAt: Date.now()
-  });
+  card.appendChild(list);
 
-  return true;
-}
+  if (isStaff(user)) {
+    const controls = $("div", "team-controls");
 
-export async function activateTeam(teamId, actor) {
-  requireStaff(actor);
+    const availableMembers = members.filter(
+      member => !memberMap[member.uid]
+    );
 
-  const id = validateId(teamId, "شناسه تیم");
-  const team = await readData(`${PATH}/${id}`);
+    const memberSelect = createSelect([
+      ["", "انتخاب عضو برای افزودن"],
+      ...availableMembers.map(member => [
+        member.uid,
+        getMemberName(member)
+      ])
+    ]);
 
-  if (!team || team.deletedAt) {
-    throw new Error("تیم موردنظر پیدا نشد یا حذف شده است.");
+    controls.appendChild(memberSelect);
+
+    controls.appendChild(
+      createButton("افزودن عضو", "secondary-button", async () => {
+        if (!memberSelect.value) {
+          showMessage(card, "ابتدا یک عضو انتخاب کن.", "error");
+          return;
+        }
+
+        try {
+          await addTeamMember(
+            team.id,
+            memberSelect.value,
+            user
+          );
+
+          await onChanged();
+        } catch (error) {
+          showMessage(card, error.message, "error");
+        }
+      })
+    );
+
+    controls.appendChild(
+      createButton("ویرایش تیم", "secondary-button", async () => {
+        const newName = prompt("نام جدید تیم:", team.name || "");
+        if (newName === null) return;
+
+        const newDescription = prompt(
+          "توضیحات جدید:",
+          team.description || ""
+        );
+
+        if (newDescription === null) return;
+
+        const newType = prompt(
+          "نوع تیم را وارد کن: MP یا BR یا BOTH",
+          team.type || "MP"
+        );
+
+        if (newType === null) return;
+
+        try {
+          await updateTeam(team.id, {
+            name: newName,
+            description: newDescription,
+            type: newType.trim().toUpperCase()
+          }, user);
+
+          await onChanged();
+        } catch (error) {
+          showMessage(card, error.message, "error");
+        }
+      })
+    );
+
+    if (team.active === false) {
+      controls.appendChild(
+        createButton("فعال‌سازی تیم", "secondary-button", async () => {
+          try {
+            await activateTeam(team.id, user);
+            await onChanged();
+          } catch (error) {
+            showMessage(card, error.message, "error");
+          }
+        })
+      );
+    } else {
+      controls.appendChild(
+        createButton("غیرفعال‌سازی", "secondary-button", async () => {
+          if (!confirm("این تیم غیرفعال شود؟")) return;
+
+          try {
+            await deactivateTeam(team.id, user);
+            await onChanged();
+          } catch (error) {
+            showMessage(card, error.message, "error");
+          }
+        })
+      );
+    }
+
+    if (isAdmin(user)) {
+      controls.appendChild(
+        createButton("حذف کامل تیم", "danger-button", async () => {
+          if (!confirm("حذف کامل تیم قابل بازگشت نیست. ادامه می‌دهی؟")) {
+            return;
+          }
+
+          try {
+            await deleteTeam(team.id, user);
+            await onChanged();
+          } catch (error) {
+            showMessage(card, error.message, "error");
+          }
+        })
+      );
+    }
+
+    card.appendChild(controls);
   }
 
-  await updateData(`${PATH}/${id}`, {
-    active: true,
-    activatedBy: actor.uid,
-    activatedAt: Date.now(),
-    updatedAt: Date.now()
-  });
-
-  return true;
+  return card;
 }
 
-export async function deleteTeam(teamId, actor) {
-  requireAdmin(actor);
-
-  const id = validateId(teamId, "شناسه تیم");
-  const team = await readData(`${PATH}/${id}`);
-
-  if (!team) {
-    throw new Error("تیم موردنظر پیدا نشد.");
+export async function renderTeams(container, user) {
+  if (!(container instanceof HTMLElement)) {
+    throw new Error("محل نمایش تیم‌ها معتبر نیست.");
   }
 
-  await deleteData(`${PATH}/${id}`);
+  container.replaceChildren(
+    $("p", "loading-state", "در حال دریافت تیم‌ها...")
+  );
 
-  return true;
-}
+  try {
+    const [members, teams] = await Promise.all([
+      loadMembers(user),
+      getTeams(
+        { includeInactive: isStaff(user) },
+        isStaff(user) ? user : null
+      )
+    ]);
+
+    const heading = $("section", "card");
+
+    heading.append(
+      $("h2", "card-title", "تیم‌های INVICTUS"),
+      $("p", "", "مدیریت ترکیب تیم‌های رقابتی MP و BR")
+    );
+
+    const toolbar = $("div", "teams-toolbar");
+
+    const search = createInput("جستجوی نام تیم...");
+
+    const filter = createSelect([
+      ["ALL", "همه تیم‌ها"],
+      ["MP", "Multiplayer"],
+      ["BR", "Battle Royale"],
+      ["BOTH", "MP و BR"]
+    ]);
+
+    toolbar.append(search, filter);
+
+    const list = $("div", "teams-list");
+    const content = $("div", "teams-content");
+
+    content.append(heading, toolbar, list);
+
+    if (isStaff(user)) {
+      createTeamForm(content, user, members, () =>
+        renderTeams(container, user)
+      );
+    }
+
+    function updateList() {
+      const term = normalizeName(search.value);
+
+      const filtered = teams.filter(team => {
+        const nameMatches = normalizeName(team.name).includes(term);
+
+        const typeMatches =
+          filter.value === "ALL" ||
+          team.type === filter.value;
+
+        return nameMatches && typeMatches;
+      });
+
+      list.replaceChildren();
+
+      if (!filtered.length) {
+        list.appendChild(
+          $("section", "card empty-state",
+            "تیمی با این مشخصات پیدا نشد."
+          )
+        );
+        return;
+      }
+
+      filtered.forEach(team => {
+        list.appendChild(
+          createTeamCard(
+            team,
+            user,
+            members,
+            () => renderTeams(container, user)
+          )
+        );
+      });
+    }
+
+    search.addEventListener("input", updateList);
+    filter.addEventListener("change", updateList);
+
+    updateList();
+    container.replaceChildren(content);
+
+  } catch (error) {
+    console.error("Teams page failed:", error);
+
+    const errorCard = $("section", "card error-state",
+      error.message || "دریافت تیم‌ها ناموفق بود."
+    );
+
+    errorCard.appendChild(
+      createButton("تلاش دوباره", "secondary-button", () =>
+        renderTeams(container, user)
+      )
+    );
+
+    container.replaceChildren(errorCard);
+  }
+    }
