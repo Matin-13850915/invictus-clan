@@ -19,12 +19,17 @@ const DEFAULT_RANKING = {
   automaticPoints: 0
 };
 
+function requireActiveUser(actor) {
+  if (!actor?.uid || actor.active !== true) {
+    throw new Error("ابتدا باید وارد حساب فعال خود شوید.");
+  }
+}
+
 function requireStaff(actor) {
-  if (
-    !actor?.uid ||
-    !["admin", "leader"].includes(actor.role)
-  ) {
-    throw new Error("فقط لیدر و ادمین اجازه تغییر امتیازات را دارند.");
+  requireActiveUser(actor);
+
+  if (!["admin", "leader"].includes(actor.role)) {
+    throw new Error("فقط لیدر و ادمین اجازه این عملیات را دارند.");
   }
 }
 
@@ -32,12 +37,8 @@ function validateUid(uid) {
   if (
     typeof uid !== "string" ||
     !uid.trim() ||
-    uid.includes("/") ||
-    uid.includes(".") ||
-    uid.includes("#") ||
-    uid.includes("$") ||
-    uid.includes("[") ||
-    uid.includes("]")
+    uid.length > 128 ||
+    /[.#$/\[\]]/.test(uid)
   ) {
     throw new Error("شناسه عضو معتبر نیست.");
   }
@@ -49,7 +50,7 @@ function validateSeasonId(seasonId) {
   if (
     typeof seasonId !== "string" ||
     !seasonId.trim() ||
-    /[.#$/[\]]/.test(seasonId)
+    /[.#$/\[\]]/.test(seasonId)
   ) {
     throw new Error("شناسه فصل معتبر نیست.");
   }
@@ -132,7 +133,7 @@ export async function addManualPoints(
   const cleanReason = normalizeText(reason);
 
   if (!Number.isInteger(points) || points === 0) {
-    throw new Error("مقدار امتیاز معتبر نیست.");
+    throw new Error("مقدار امتیاز باید عدد صحیح و غیرصفر باشد.");
   }
 
   if (Math.abs(points) > 10000) {
@@ -144,7 +145,6 @@ export async function addManualPoints(
   }
 
   const member = await getMemberRanking(uid, seasonId);
-
   const manualPoints = member.manualPoints + points;
   const totalPoints = manualPoints + member.automaticPoints;
   const now = Date.now();
@@ -186,11 +186,14 @@ export async function recordWarPerformance(
     throw new Error("نتیجه عملکرد معتبر نیست.");
   }
 
-  if (warId !== null && (
-    typeof warId !== "string" ||
-    !warId.trim() ||
-    /[.#$/[\]]/.test(warId)
-  )) {
+  if (
+    warId !== null &&
+    (
+      typeof warId !== "string" ||
+      !warId.trim() ||
+      /[.#$/\[\]]/.test(warId)
+    )
+  ) {
     throw new Error("شناسه جنگ معتبر نیست.");
   }
 
@@ -241,8 +244,13 @@ export async function recordWarPerformance(
   };
 }
 
-export async function getRankingHistory(uid) {
+export async function getRankingHistory(uid, actor) {
+  requireActiveUser(actor);
   validateUid(uid);
+
+  if (actor.uid !== uid && !["admin", "leader"].includes(actor.role)) {
+    throw new Error("اجازه مشاهده تاریخچه امتیاز این عضو را ندارید.");
+  }
 
   const data = await readData(HISTORY_PATH);
 
@@ -251,7 +259,11 @@ export async function getRankingHistory(uid) {
   return Object.entries(data)
     .filter(([, item]) => item && item.uid === uid)
     .map(([id, item]) => ({ id, ...item }))
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    .sort(
+      (a, b) =>
+        (Number(b.createdAt) || 0) -
+        (Number(a.createdAt) || 0)
+    );
 }
 
 export async function getAllRankingHistory(actor) {
@@ -262,7 +274,11 @@ export async function getAllRankingHistory(actor) {
   if (!data || typeof data !== "object") return [];
 
   return Object.entries(data)
+    .filter(([, item]) => item && typeof item === "object")
     .map(([id, item]) => ({ id, ...item }))
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    }
-    
+    .sort(
+      (a, b) =>
+        (Number(b.createdAt) || 0) -
+        (Number(a.createdAt) || 0)
+    );
+        }
