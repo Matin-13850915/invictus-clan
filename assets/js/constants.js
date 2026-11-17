@@ -4,7 +4,8 @@ export const CLAN = Object.freeze({
   tag: "łK¹",
   game: "Call of Duty: Mobile",
   gameShort: "CODM",
-  theme: "dark-gold"
+  theme: "dark-gold",
+  region: "Global"
 });
 
 export const ROLES = Object.freeze({
@@ -63,15 +64,19 @@ export const WAR_APPLICATION_STATUS = Object.freeze({
 export const CHAT_ROOMS = Object.freeze({
   GENERAL: "general",
   ATTACHMENT: "attachment",
-  CUSTOM: "custom"
+  CUSTOM: "custom",
+  STAFF: "staff"
 });
 
 export const CHAT_ROOM_LABELS = Object.freeze({
   general: "چت عمومی",
-  attachment: "پیوست"
+  attachment: "پیوست",
+  custom: "اتاق اختصاصی",
+  staff: "گفت‌وگوی کادر مدیریت"
 });
 
 export const MESSAGE_EDIT_WINDOW = 15 * 60 * 1000;
+export const MAX_CHAT_MESSAGE_LENGTH = 2000;
 
 export const RESTRICTION_DURATIONS = Object.freeze({
   FIFTEEN_MINUTES: 15 * 60 * 1000,
@@ -81,7 +86,8 @@ export const RESTRICTION_DURATIONS = Object.freeze({
   ONE_DAY: 24 * 60 * 60 * 1000
 });
 
-export const MAX_CUSTOM_RESTRICTION = 30 * 24 * 60 * 60 * 1000;
+export const MAX_CUSTOM_RESTRICTION =
+  30 * 24 * 60 * 60 * 1000;
 
 export const NOTIFICATION_TYPES = Object.freeze({
   INFO: "info",
@@ -122,6 +128,12 @@ export const SEASON_STATUS = Object.freeze({
   ARCHIVED: "archived"
 });
 
+export const TEAM_STATUS = Object.freeze({
+  ACTIVE: "active",
+  INACTIVE: "inactive",
+  ARCHIVED: "archived"
+});
+
 export const DEFAULT_SETTINGS = Object.freeze({
   maintenanceMode: false,
   applicationsEnabled: true,
@@ -129,7 +141,11 @@ export const DEFAULT_SETTINGS = Object.freeze({
   rewardsShopEnabled: true,
   tournamentsEnabled: true,
   forumEnabled: true,
-  announcementsEnabled: true
+  announcementsEnabled: true,
+  warsEnabled: true,
+  privateMessagesEnabled: true,
+  supportEnabled: true,
+  registrationEnabled: true
 });
 
 export const PAGE_ACCESS = Object.freeze({
@@ -141,7 +157,7 @@ export const PAGE_ACCESS = Object.freeze({
   rankings: ["admin", "leader", "tester", "member"],
   chat: ["admin", "leader", "tester", "member"],
   forum: ["admin", "leader", "tester", "member"],
-  messages: ["admin", "leader", "member"],
+  messages: ["admin", "leader", "tester", "member"],
   staffChat: ["admin", "leader"],
   profile: ["admin", "leader", "tester", "member"],
   notifications: ["admin", "leader", "tester", "member"],
@@ -155,6 +171,49 @@ export const PAGE_ACCESS = Object.freeze({
   staff: ["admin", "leader", "tester", "member"],
   rules: ["admin", "leader", "tester", "member"],
   settings: ["admin", "leader", "tester", "member"],
+  support: ["admin", "leader", "tester", "member"],
   admin: ["admin"]
 });
-  
+
+export const DATABASE_PATHS = Object.freeze({
+  USERS: "users",
+  ROLES: "roles",
+  APPLICATIONS: "applications",
+  ANNOUNCEMENTS: "announcements",
+  WARS: "wars",
+  WAR_APPLICATIONS: "warApplications",
+  RANKINGS: "rankings",
+  CHAT_MESSAGES: "chatMessages",
+  CHAT_ROOMS: "chatRooms",
+  PRIVATE_MESSAGES: "privateMessages",
+  NOTIFICATIONS: "notifications",
+  TICKETS: "tickets",
+  REWARDS: "rewards",
+  REWARD_REQUESTS: "rewardRequests",
+  TEAMS: "teams",
+  TOURNAMENTS: "tournaments",
+  SEASONS: "seasons",
+  RULES: "rules",
+  SETTINGS: "settings",
+  AUDIT_LOGS: "auditLogs",
+  MEMBER_HISTORY: "memberHistory"
+});
+
+export const LIMITS = Object.freeze({
+  CHAT_MESSAGE_LENGTH: MAX_CHAT_MESSAGE_LENGTH,
+  APPLICATION_DESCRIPTION: 2000,
+  ANNOUNCEMENT_LENGTH: 5000,
+  TICKET_DESCRIPTION: 3000,
+  PAGE_SIZE: 20,
+  MAX_PAGE_SIZE: 100,
+  SEARCH_LENGTH: 100
+});
+
+export const APP_INFO = Object.freeze({
+  name: "INVICTUS Clan Manager",
+  version: "1.0.0",
+  game: "CODM",
+  language: "fa",
+  direction: "rtl"
+});
+          
