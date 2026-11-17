@@ -7,7 +7,9 @@ import {
 const $ = (tag, className = "", value = "") => {
   const element = document.createElement(tag);
 
-  if (className) element.className = className;
+  if (className) {
+    element.className = className;
+  }
 
   element.textContent = String(value ?? "");
   return element;
@@ -45,9 +47,15 @@ const ROLE_LABELS = {
 };
 
 function formatDate(value) {
-  const date = new Date(Number(value));
+  const timestamp = Number(value);
 
-  if (!value || Number.isNaN(date.getTime())) {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return "زمان نامشخص";
+  }
+
+  const date = new Date(timestamp);
+
+  if (Number.isNaN(date.getTime())) {
     return "زمان نامشخص";
   }
 
@@ -55,6 +63,22 @@ function formatDate(value) {
     dateStyle: "medium",
     timeStyle: "short"
   }).format(date);
+}
+
+function stringifyValue(value) {
+  if (value === null || value === undefined) {
+    return "—";
+  }
+
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "[غیرقابل نمایش]";
+    }
+  }
+
+  return String(value);
 }
 
 function createAuditCard(item) {
@@ -84,21 +108,18 @@ function createAuditCard(item) {
   if (
     details &&
     typeof details === "object" &&
+    !Array.isArray(details) &&
     Object.keys(details).length
   ) {
     const detailsBox = $("details", "audit-details");
-    const summary = $("summary", "", "جزئیات بیشتر");
 
-    detailsBox.appendChild(summary);
+    detailsBox.appendChild(
+      $("summary", "", "جزئیات بیشتر")
+    );
 
     Object.entries(details).forEach(([key, value]) => {
-      const displayValue =
-        value !== null && typeof value === "object"
-          ? JSON.stringify(value)
-          : String(value ?? "—");
-
       detailsBox.appendChild(
-        $("p", "", `${key}: ${displayValue}`)
+        $("p", "", `${key}: ${stringifyValue(value)}`)
       );
     });
 
@@ -110,8 +131,10 @@ function createAuditCard(item) {
 
 function makeButton(label, callback) {
   const button = $("button", "secondary-button", label);
+
   button.type = "button";
   button.addEventListener("click", callback);
+
   return button;
 }
 
@@ -198,5 +221,4 @@ export async function renderAudit(container, user) {
   };
 
   await load();
-    }
-          
+}
