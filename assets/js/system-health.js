@@ -1,12 +1,25 @@
 
-import { getRecord } from "./database.js";
-import { db } from "./firebase.js";
-import { ref, get, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import {
+  db,
+  ref,
+  get,
+  onValue
+} from "./firebase.js";
+
+import { canEditSiteContent } from "./permissions.js";
 
 function requireAdmin(actor) {
-  if (!actor?.uid || actor.role !== "admin") {
+  if (!canEditSiteContent(actor)) {
     throw new Error("فقط ادمین اجازه بررسی سلامت سیستم را دارد.");
   }
+}
+
+function getErrorMessage(error) {
+  if (error?.code === "PERMISSION_DENIED") {
+    return "دسترسی به این بخش توسط قوانین Firebase محدود شده است.";
+  }
+
+  return "بررسی این بخش ناموفق بود.";
 }
 
 async function checkDatabaseAccess(path, name) {
@@ -20,11 +33,35 @@ async function checkDatabaseAccess(path, name) {
         ? "دسترسی برقرار است."
         : "مسیر قابل دسترسی است اما داده‌ای ندارد."
     };
-  } catch {
+  } catch (error) {
     return {
       name,
       status: "error",
-      message: "دریافت اطلاعات ناموفق بود."
+      message: getErrorMessage(error)
+    };
+  }
+}
+
+async function checkFirebaseConnection() {
+  try {
+    const snapshot = await get(
+      ref(db, ".info/connected")
+    );
+
+    const connected = snapshot.val() === true;
+
+    return {
+      name: "Firebase",
+      status: connected ? "online" : "error",
+      message: connected
+        ? "اتصال برقرار است."
+        : "اتصال Firebase برقرار نیست."
+    };
+  } catch {
+    return {
+      name: "Firebase",
+      status: "error",
+      message: "بررسی اتصال Firebase ناموفق بود."
     };
   }
 }
@@ -32,54 +69,24 @@ async function checkDatabaseAccess(path, name) {
 export async function checkSystemHealth(actor) {
   requireAdmin(actor);
 
-  const checks = [];
-
-  // بررسی اتصال Firebase
-  try {
-    const connected = await getRecord(".info/connected");
-
-    checks.push({
-      name: "Firebase",
-      status: connected === true ? "online" : "error",
-      message: connected === true
-        ? "اتصال برقرار است."
-        : "اتصال Firebase برقرار نیست."
-    });
-  } catch {
-    checks.push({
-      name: "Firebase",
-      status: "error",
-      message: "بررسی اتصال ناموفق بود."
-    });
-  }
-
-  // بررسی دسترسی به تنظیمات
-  checks.push(
-    await checkDatabaseAccess("siteSettings", "تنظیمات سایت")
-  );
-
-  // بررسی دسترسی به نسخه
-  checks.push(
-    await checkDatabaseAccess("system/version", "اطلاعات نسخه")
-  );
-
-  // بررسی دسترسی به کاربران
-  checks.push(
-    await checkDatabaseAccess("users", "اطلاعات کاربران")
-  );
+  const checks = await Promise.all([
+    checkFirebaseConnection(),
+    checkDatabaseAccess("siteSettings", "تنظیمات سایت"),
+    checkDatabaseAccess("system/version", "اطلاعات نسخه")
+  ]);
 
   const hasError = checks.some(
     item => item.status === "error"
   );
 
-  const hasUnknown = checks.some(
+  const hasEmpty = checks.some(
     item => item.status === "empty"
   );
 
   return {
     overallStatus: hasError
       ? "warning"
-      : hasUnknown
+      : hasEmpty
         ? "partial"
         : "healthy",
     checkedAt: Date.now(),
@@ -96,7 +103,11 @@ export function watchFirebaseConnection(callback) {
 
   return onValue(
     connectionRef,
-    snapshot => callback(snapshot.val() === true),
-    error => callback(false, error)
+    snapshot => {
+      callback(snapshot.val() === true);
+    },
+    error => {
+      callback(false, error);
+    }
   );
 }
