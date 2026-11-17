@@ -37,17 +37,30 @@ async function readRoleData(uid) {
 
   const data = snapshot.val();
 
-  if (!data || typeof data !== "object") return null;
-  if (data.active !== true) return null;
-  if (data.status === "banned" || data.status === "suspended") {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
     return null;
   }
 
-  if (!ALLOWED_ROLES.includes(data.role)) return null;
+  if (data.active !== true) return null;
 
-  // فقط حساب اصلی مدیر می‌تواند نقش admin داشته باشد.
-  if (uid === ADMIN_UID && data.role !== "admin") return null;
-  if (uid !== ADMIN_UID && data.role === "admin") return null;
+  if (
+    data.status === "banned" ||
+    data.status === "suspended"
+  ) {
+    return null;
+  }
+
+  if (!ALLOWED_ROLES.includes(data.role)) {
+    return null;
+  }
+
+  if (uid === ADMIN_UID && data.role !== "admin") {
+    return null;
+  }
+
+  if (uid !== ADMIN_UID && data.role === "admin") {
+    return null;
+  }
 
   return data;
 }
@@ -71,8 +84,9 @@ export async function login(email, password) {
     const roleData = await readRoleData(result.user.uid);
 
     if (!roleData) {
-      await signOut(auth);
-      throw new Error("حساب شما فعال نیست یا دسترسی معتبر ندارد.");
+      throw new Error(
+        "حساب شما فعال نیست یا دسترسی معتبر ندارد."
+      );
     }
 
     return result.user;
