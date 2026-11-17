@@ -13,7 +13,11 @@ const MEMBER_BADGES_PATH = "memberBadges";
 const HISTORY_PATH = "badgeHistory";
 
 function requireUser(actor) {
-  if (!actor?.uid) {
+  if (
+    !actor ||
+    typeof actor.uid !== "string" ||
+    !actor.uid.trim()
+  ) {
     throw new Error("ابتدا وارد حساب خود شوید.");
   }
 }
@@ -26,34 +30,60 @@ function requireStaff(actor) {
   }
 }
 
-function cleanText(value, maxLength) {
+function assertId(value, label = "شناسه") {
+  if (
+    typeof value !== "string" ||
+    !value.trim() ||
+    /[.#$/\[\]]/.test(value)
+  ) {
+    throw new Error(`${label} معتبر نیست.`);
+  }
+}
+
+function cleanText(value, maxLength, required = true) {
   if (typeof value !== "string") {
     throw new Error("متن واردشده معتبر نیست.");
   }
 
   const result = value.trim();
 
-  if (!result || result.length > maxLength) {
-    throw new Error(`متن باید بین ۱ تا ${maxLength} کاراکتر باشد.`);
+  if (
+    (required && !result) ||
+    result.length > maxLength
+  ) {
+    throw new Error(
+      `متن باید ${required ? "بین ۱ تا" : "حداکثر"} ${maxLength} کاراکتر باشد.`
+    );
   }
 
   return result;
 }
 
-// ایجاد تعریف نشان جدید
+function cleanIcon(value) {
+  if (typeof value !== "string" || value.length > 20) {
+    throw new Error("آیکون نشان معتبر نیست.");
+  }
+
+  return value.trim() || "🏅";
+}
+
+// ایجاد نشان
 export async function createBadge(data, actor) {
   requireStaff(actor);
 
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("اطلاعات نشان معتبر نیست.");
+  }
+
   const name = cleanText(data.name, 60);
   const description = cleanText(data.description, 300);
+  const icon = cleanIcon(data.icon ?? "🏅");
 
   const badge = {
     id: createId(),
     name,
     description,
-    icon: typeof data.icon === "string"
-      ? data.icon.slice(0, 20)
-      : "🏅",
+    icon,
     active: true,
     createdAt: Date.now(),
     createdBy: actor.uid
@@ -70,19 +100,30 @@ export async function getActiveBadges() {
 
   return badges
     .filter(badge => badge.active !== false)
-    .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    .sort((a, b) =>
+      (a.name || "").localeCompare(b.name || "")
+    );
 }
 
-// دریافت تمام نشان‌ها برای مدیریت
+// دریافت همه نشان‌ها برای مدیریت
 export async function getAllBadges(actor) {
   requireStaff(actor);
 
   return getAllRecords(BADGES_PATH);
 }
 
-// ویرایش تعریف نشان
+// ویرایش نشان
 export async function updateBadge(badgeId, changes, actor) {
   requireStaff(actor);
+  assertId(badgeId, "شناسه نشان");
+
+  if (
+    !changes ||
+    typeof changes !== "object" ||
+    Array.isArray(changes)
+  ) {
+    throw new Error("اطلاعات ویرایش معتبر نیست.");
+  }
 
   const badge = await getRecord(`${BADGES_PATH}/${badgeId}`);
 
@@ -104,11 +145,7 @@ export async function updateBadge(badgeId, changes, actor) {
   }
 
   if (changes.icon !== undefined) {
-    if (typeof changes.icon !== "string" || changes.icon.length > 20) {
-      throw new Error("آیکون نشان معتبر نیست.");
-    }
-
-    updates.icon = changes.icon;
+    updates.icon = cleanIcon(changes.icon);
   }
 
   if (changes.active !== undefined) {
@@ -127,10 +164,10 @@ export async function updateBadge(badgeId, changes, actor) {
 // اعطای نشان به عضو
 export async function awardBadge(uid, badgeId, reason, actor) {
   requireStaff(actor);
+  assertId(uid, "شناسه عضو");
+  assertId(badgeId, "شناسه نشان");
 
-  if (typeof uid !== "string" || !uid.trim()) {
-    throw new Error("شناسه عضو معتبر نیست.");
-  }
+  const cleanReason = cleanText(reason, 500);
 
   const [badge, existingAwards] = await Promise.all([
     getRecord(`${BADGES_PATH}/${badgeId}`),
@@ -141,7 +178,7 @@ export async function awardBadge(uid, badgeId, reason, actor) {
     throw new Error("این نشان فعال یا موجود نیست.");
   }
 
-  const duplicate = existingAwards.find(item =>
+  const duplicate = existingAwards.some(item =>
     item.uid === uid &&
     item.badgeId === badgeId &&
     item.active !== false
@@ -151,29 +188,30 @@ export async function awardBadge(uid, badgeId, reason, actor) {
     throw new Error("این عضو قبلاً این نشان را دریافت کرده است.");
   }
 
+  const now = Date.now();
+
   const award = {
     id: createId(),
     uid,
     badgeId,
     badgeName: badge.name,
-    badgeIcon: badge.icon,
-    reason: cleanText(reason, 500),
+    badgeIcon: badge.icon || "🏅",
+    reason: cleanReason,
     active: true,
-    awardedAt: Date.now(),
+    awardedAt: now,
     awardedBy: actor.uid
   };
 
   await createRecord(MEMBER_BADGES_PATH, award);
 
   await createRecord(HISTORY_PATH, {
-    id: createId(),
     action: "award",
     uid,
     badgeId,
     awardId: award.id,
     actorUid: actor.uid,
-    createdAt: Date.now(),
-    reason: award.reason
+    createdAt: now,
+    reason: cleanReason
   });
 
   return award;
@@ -182,6 +220,7 @@ export async function awardBadge(uid, badgeId, reason, actor) {
 // دریافت نشان‌های یک عضو
 export async function getMemberBadges(uid, actor) {
   requireUser(actor);
+  assertId(uid, "شناسه عضو");
 
   const isOwner = actor.uid === uid;
   const isStaff = ["admin", "leader"].includes(actor.role);
@@ -193,37 +232,45 @@ export async function getMemberBadges(uid, actor) {
   const awards = await getAllRecords(MEMBER_BADGES_PATH);
 
   return awards
-    .filter(item => item.uid === uid && item.active !== false)
-    .sort((a, b) => (b.awardedAt || 0) - (a.awardedAt || 0));
+    .filter(item =>
+      item.uid === uid &&
+      item.active !== false
+    )
+    .sort((a, b) =>
+      (b.awardedAt || 0) - (a.awardedAt || 0)
+    );
 }
 
 // لغو نشان اعطاشده
 export async function revokeBadge(awardId, reason, actor) {
   requireStaff(actor);
+  assertId(awardId, "شناسه نشان اعطاشده");
 
-  const award = await getRecord(`${MEMBER_BADGES_PATH}/${awardId}`);
+  const award = await getRecord(
+    `${MEMBER_BADGES_PATH}/${awardId}`
+  );
 
   if (!award || award.active === false) {
     throw new Error("نشان اعطاشده پیدا نشد.");
   }
 
   const cleanReason = cleanText(reason, 500);
+  const now = Date.now();
 
   await updateRecord(`${MEMBER_BADGES_PATH}/${awardId}`, {
     active: false,
-    revokedAt: Date.now(),
+    revokedAt: now,
     revokedBy: actor.uid,
     revokeReason: cleanReason
   });
 
   await createRecord(HISTORY_PATH, {
-    id: createId(),
     action: "revoke",
     uid: award.uid,
     badgeId: award.badgeId,
     awardId,
     actorUid: actor.uid,
-    createdAt: Date.now(),
+    createdAt: now,
     reason: cleanReason
   });
 
@@ -239,5 +286,4 @@ export async function getBadgeHistory(actor) {
   return history.sort(
     (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
   );
-    }
-               
+}
