@@ -1,283 +1,304 @@
 
-import {
-  getApplications,
-  getApplicationStatusLabel
-} from "../application-tracker.js";
+export const ROLES = Object.freeze({
+  ADMIN: "admin",
+  LEADER: "leader",
+  TESTER: "tester",
+  MEMBER: "member"
+});
 
-function el(tag, className = "", text = "") {
-  const node = document.createElement(tag);
+export const TESTER_SPECIALTIES = Object.freeze({
+  MP: "MP",
+  BR: "BR"
+});
 
-  if (className) node.className = className;
+const ALL_ROLES = Object.freeze([
+  ROLES.ADMIN,
+  ROLES.LEADER,
+  ROLES.TESTER,
+  ROLES.MEMBER
+]);
 
-  if (text !== undefined && text !== null) {
-    node.textContent = String(text);
-  }
+const MANAGEMENT_ROLES = Object.freeze([
+  ROLES.ADMIN,
+  ROLES.LEADER
+]);
 
-  return node;
+function validUser(user) {
+  return Boolean(
+    user &&
+    typeof user.uid === "string" &&
+    user.uid.trim() &&
+    ALL_ROLES.includes(user.role)
+  );
 }
 
-function formatDate(value) {
-  if (!value) return "ثبت نشده";
-
-  const date = new Date(value);
-
-  if (Number.isNaN(date.getTime())) {
-    return "نامشخص";
-  }
-
-  return date.toLocaleString("fa-IR");
+function isActiveUser(user) {
+  return (
+    validUser(user) &&
+    user.active === true &&
+    user.status !== "banned" &&
+    user.status !== "suspended"
+  );
 }
 
-function createInfo(label, value) {
-  const item = el("div", "application-info-item");
-
-  item.append(
-    el("small", "", label),
-    el("span", "", value || "ثبت نشده")
-  );
-
-  return item;
+export function hasRole(user, role) {
+  return isActiveUser(user) && user.role === role;
 }
 
-function createApplicationCard(application) {
-  const card = el("article", "card application-card");
-
-  const header = el("div", "application-card-header");
-
-  const title = el(
-    "h3",
-    "",
-    application.gameName || "بازیکن بدون نام"
-  );
-
-  const status = el(
-    "span",
-    "application-status",
-    getApplicationStatusLabel(application.status)
-  );
-
-  header.append(title, status);
-
-  const details = el("div", "application-info-grid");
-
-  details.append(
-    createInfo("لول بازی", application.gameLevel),
-    createInfo("نوع درخواست", application.applicationType),
-    createInfo("رنک MP", application.mpRank),
-    createInfo("رنک BR", application.brRank),
-    createInfo("نام واقعی", application.realName),
-    createInfo("ایمیل", application.email),
-    createInfo("تلگرام", application.telegram),
-    createInfo("روبیکا", application.rubika),
-    createInfo("تاریخ ثبت", formatDate(application.createdAt)),
-    createInfo("آخرین تغییر", formatDate(application.updatedAt))
-  );
-
-  const tester = el(
-    "p",
-    "application-tester",
-    `تستر اختصاص‌یافته: ${
-      application.assignedTesterUid || "هنوز تعیین نشده"
-    }`
-  );
-
-  const testResult = el(
-    "p",
-    "application-test-result",
-    `نتیجه تست: ${application.testResult || "ثبت نشده"}`
-  );
-
-  card.append(header, details, tester, testResult);
-
-  if (application.testNote) {
-    card.append(
-      el(
-        "p",
-        "application-note",
-        `یادداشت تستر: ${application.testNote}`
-      )
-    );
-  }
-
-  if (application.leaderNote) {
-    card.append(
-      el(
-        "p",
-        "application-note",
-        `یادداشت لیدر: ${application.leaderNote}`
-      )
-    );
-  }
-
-  if (application.description) {
-    card.append(
-      el(
-        "p",
-        "application-description",
-        application.description
-      )
-    );
-  }
-
-  return card;
+export function isAdmin(user) {
+  return hasRole(user, ROLES.ADMIN);
 }
 
-export async function renderApplications(container, user) {
-  if (!(container instanceof HTMLElement)) {
-    throw new Error("محل نمایش درخواست‌ها معتبر نیست.");
+export function isLeader(user) {
+  return hasRole(user, ROLES.LEADER);
+}
+
+export function isTester(user) {
+  return hasRole(user, ROLES.TESTER);
+}
+
+export function isMember(user) {
+  return hasRole(user, ROLES.MEMBER);
+}
+
+export function isStaff(user) {
+  return (
+    isAdmin(user) ||
+    isLeader(user) ||
+    isTester(user)
+  );
+}
+
+export function isLeaderOrAdmin(user) {
+  return isAdmin(user) || isLeader(user);
+}
+
+export function hasTesterSpecialty(user, specialty) {
+  return (
+    isTester(user) &&
+    Object.values(TESTER_SPECIALTIES).includes(specialty) &&
+    user.specialty === specialty
+  );
+}
+
+export function canAccessPage(user, page) {
+  if (!isActiveUser(user)) return false;
+
+  const access = {
+    home: ALL_ROLES,
+    applications: [
+      ROLES.ADMIN,
+      ROLES.LEADER,
+      ROLES.TESTER
+    ],
+    members: ALL_ROLES,
+    announcements: ALL_ROLES,
+    wars: ALL_ROLES,
+    rankings: ALL_ROLES,
+    chat: ALL_ROLES,
+    forum: ALL_ROLES,
+    messages: ALL_ROLES,
+    teams: ALL_ROLES,
+    tournaments: ALL_ROLES,
+    seasons: ALL_ROLES,
+    rewards: ALL_ROLES,
+    tickets: ALL_ROLES,
+    archive: MANAGEMENT_ROLES,
+    statistics: MANAGEMENT_ROLES,
+    audit: MANAGEMENT_ROLES,
+    staff: MANAGEMENT_ROLES,
+    activity: ALL_ROLES,
+    rules: ALL_ROLES,
+    settings: ALL_ROLES,
+    profile: ALL_ROLES,
+    notifications: ALL_ROLES,
+    support: ALL_ROLES,
+    admin: [ROLES.ADMIN]
+  };
+
+  const allowedRoles = access[page];
+
+  return Boolean(
+    allowedRoles &&
+    allowedRoles.includes(user.role)
+  );
+}
+
+export function canManageWebsite(user) {
+  return isAdmin(user);
+}
+
+export function canManageMembers(user) {
+  return isLeaderOrAdmin(user);
+}
+
+export function canManageApplications(user) {
+  return isLeaderOrAdmin(user);
+}
+
+export function canReviewAssignedApplication(user, application) {
+  if (!isActiveUser(user) || !application) {
+    return false;
   }
 
-  if (
-    !user?.uid ||
-    user.active !== true ||
-    !["admin", "leader", "tester"].includes(user.role)
-  ) {
-    container.replaceChildren(
-      el(
-        "section",
-        "card error-state",
-        "اجازه مشاهده درخواست‌های عضویت را ندارید."
-      )
-    );
-
-    return;
+  if (isLeaderOrAdmin(user)) {
+    return true;
   }
 
-  container.replaceChildren(
-    el(
-      "p",
-      "loading-state",
-      "در حال دریافت درخواست‌های عضویت..."
+  return (
+    isTester(user) &&
+    application.assignedTesterUid === user.uid &&
+    application.assignedSpecialty === user.specialty &&
+    hasTesterSpecialty(user, user.specialty)
+  );
+}
+
+export function canPublishAnnouncements(user) {
+  return isLeaderOrAdmin(user);
+}
+
+export function canManageWars(user) {
+  return isLeaderOrAdmin(user);
+}
+
+export function canManageTeams(user) {
+  return isLeaderOrAdmin(user);
+}
+
+export function canManageTournaments(user) {
+  return isLeaderOrAdmin(user);
+}
+
+export function canManageSeasons(user) {
+  return isLeaderOrAdmin(user);
+}
+
+export function canManageRewards(user) {
+  return isLeaderOrAdmin(user);
+}
+
+export function canModerateChat(user) {
+  return isLeaderOrAdmin(user);
+}
+
+export function canViewStaffChat(user) {
+  return isLeaderOrAdmin(user);
+}
+
+export function canEditSiteContent(user) {
+  return isAdmin(user);
+}
+
+export function canAssignRoles(user) {
+  return isAdmin(user);
+}
+
+export function canDeleteAccounts(user) {
+  return isAdmin(user);
+}
+
+export function canSubmitTestResult(user, application) {
+  return canReviewAssignedApplication(user, application);
+}
+
+export function canViewAssignedTests(user, application) {
+  return canReviewAssignedApplication(user, application);
+}
+
+export function canManageOwnProfile(user, targetUid) {
+  return (
+    isActiveUser(user) &&
+    typeof targetUid === "string" &&
+    user.uid === targetUid
+  );
+}
+
+export function canViewPrivateHistory(user, targetUid) {
+  return (
+    isActiveUser(user) &&
+    typeof targetUid === "string" &&
+    (
+      user.uid === targetUid ||
+      isLeaderOrAdmin(user)
     )
   );
-
-  try {
-    const toolbar = el("div", "applications-toolbar");
-    const filter = document.createElement("select");
-
-    filter.className = "application-filter";
-    filter.setAttribute(
-      "aria-label",
-      "فیلتر وضعیت درخواست‌ها"
-    );
-
-    const statuses = [
-      ["", "همه درخواست‌ها"],
-      ["pending", "در انتظار بررسی"],
-      ["awaiting_tester", "در انتظار تعیین تستر"],
-      ["awaiting_test", "در انتظار انجام تست"],
-      ["testing", "در حال تست"],
-      ["test_completed", "تست انجام شده"],
-      ["awaiting_leader", "در انتظار تصمیم لیدر"],
-      ["retest_requested", "تست مجدد"],
-      ["accepted", "پذیرفته شده"],
-      ["rejected", "رد شده"],
-      ["withdrawn", "انصراف داده شده"],
-      ["expired", "منقضی شده"]
-    ];
-
-    statuses.forEach(([value, label]) => {
-      const option = document.createElement("option");
-
-      option.value = value;
-      option.textContent = label;
-
-      filter.appendChild(option);
-    });
-
-    const count = el("p", "applications-count", "");
-    const list = el("div", "applications-list");
-
-    toolbar.append(filter, count);
-
-    async function load(status = "") {
-      list.replaceChildren(
-        el("p", "loading-state", "در حال بارگذاری...")
-      );
-
-      try {
-        const applications = await getApplications(
-          user,
-          status ? { status } : {}
-        );
-
-        count.textContent =
-          `تعداد درخواست‌ها: ${applications.length}`;
-
-        list.replaceChildren();
-
-        if (!applications.length) {
-          list.appendChild(
-            el(
-              "section",
-              "card empty-state",
-              "درخواستی برای نمایش وجود ندارد."
-            )
-          );
-
-          return;
-        }
-
-        applications.forEach(application => {
-          list.appendChild(
-            createApplicationCard(application)
-          );
-        });
-
-      } catch (error) {
-        console.error(
-          "Applications loading failed:",
-          error
-        );
-
-        list.replaceChildren(
-          el(
-            "section",
-            "card error-state",
-            error.message || "دریافت درخواست‌ها ناموفق بود."
-          )
-        );
-      }
-    }
-
-    filter.addEventListener("change", () => {
-      load(filter.value);
-    });
-
-    container.replaceChildren(
-      el(
-        "h2",
-        "page-section-title",
-        "مدیریت درخواست‌های عضویت"
-      ),
-      toolbar,
-      list
-    );
-
-    await load();
-
-  } catch (error) {
-    console.error("Applications page failed:", error);
-
-    const errorCard = el(
-      "section",
-      "card error-state",
-      error.message || "بارگذاری صفحه درخواست‌ها با خطا مواجه شد."
-    );
-
-    const retry = el(
-      "button",
-      "secondary-button",
-      "تلاش دوباره"
-    );
-
-    retry.type = "button";
-
-    retry.addEventListener("click", () => {
-      renderApplications(container, user);
-    });
-
-    errorCard.appendChild(retry);
-    container.replaceChildren(errorCard);
-  }
 }
+
+export function canManagePoints(user) {
+  return isLeaderOrAdmin(user);
+}
+
+export function canApproveWarApplications(user) {
+  return isLeaderOrAdmin(user);
+}
+
+export function canManageSupportTickets(user, ticket) {
+  if (!isActiveUser(user) || !ticket) {
+    return false;
+  }
+
+  if (isLeaderOrAdmin(user)) {
+    return true;
+  }
+
+  if (isTester(user)) {
+    return ticket.assignedTesterUid === user.uid;
+  }
+
+  return ticket.ownerUid === user.uid;
+}
+
+export function canManageAccountRoles(user) {
+  return isAdmin(user);
+}
+
+export function canManageSiteSettings(user) {
+  return isAdmin(user);
+}
+
+export function canCreateChatRoom(user) {
+  return isLeaderOrAdmin(user);
+}
+
+export function canDeleteAnyChatMessage(user) {
+  return isLeaderOrAdmin(user);
+}
+
+export function canEditOwnChatMessage(user, message) {
+  if (!isActiveUser(user) || !message) {
+    return false;
+  }
+
+  if (message.uid !== user.uid) {
+    return false;
+  }
+
+  const createdAt = Number(message.createdAt);
+
+  if (!Number.isFinite(createdAt) || createdAt <= 0) {
+    return false;
+  }
+
+  return Date.now() - createdAt <= 15 * 60 * 1000;
+}
+
+export function canDeleteOwnChatMessage(user, message) {
+  return (
+    isActiveUser(user) &&
+    Boolean(message) &&
+    message.uid === user.uid
+  );
+}
+
+export function canViewMemberHistory(user, targetUid) {
+  return canViewPrivateHistory(user, targetUid);
+}
+
+export function canManageBadges(user) {
+  return isLeaderOrAdmin(user);
+}
+
+export function canManagePointsBalance(user) {
+  return isLeaderOrAdmin(user);
+    }
+  
