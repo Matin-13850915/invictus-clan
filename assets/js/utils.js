@@ -1,21 +1,20 @@
 
 export function escapeHTML(value = "") {
-  return String(value).replace(/[&<>"']/g, char => {
-    const entities = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#039;"
-    };
+  const entities = {
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#039;"
+  };
 
-    return entities[char];
-  });
+  return String(value).replace(/[&<>"']/g, char => entities[char]);
 }
 
 export function normalizeText(value) {
   return String(value ?? "")
     .normalize("NFKC")
+    .replace(/[\u200B\uFEFF]/g, "")
     .trim()
     .replace(/\s+/g, " ");
 }
@@ -32,9 +31,7 @@ export function formatDate(value, options = {}) {
     return "—";
   }
 
-  const date = value instanceof Date
-    ? value
-    : new Date(value);
+  const date = value instanceof Date ? value : new Date(value);
 
   if (Number.isNaN(date.getTime())) return "—";
 
@@ -75,19 +72,21 @@ export function createId() {
   throw new Error("مرورگر از تولید شناسه امن پشتیبانی نمی‌کند.");
 }
 
+function getDocument() {
+  return typeof document !== "undefined" ? document : null;
+}
+
 export function setElementText(selector, value) {
-  const element = document.querySelector(selector);
+  const element = getDocument()?.querySelector(selector);
 
-  if (element) {
-    element.textContent = String(value ?? "");
-    return true;
-  }
+  if (!element) return false;
 
-  return false;
+  element.textContent = String(value ?? "");
+  return true;
 }
 
 export function showElement(selector) {
-  const element = document.querySelector(selector);
+  const element = getDocument()?.querySelector(selector);
 
   if (!element) return false;
 
@@ -96,7 +95,7 @@ export function showElement(selector) {
 }
 
 export function hideElement(selector) {
-  const element = document.querySelector(selector);
+  const element = getDocument()?.querySelector(selector);
 
   if (!element) return false;
 
@@ -105,7 +104,7 @@ export function hideElement(selector) {
 }
 
 export function toggleElement(selector, visible) {
-  const element = document.querySelector(selector);
+  const element = getDocument()?.querySelector(selector);
 
   if (!element) return false;
 
@@ -114,11 +113,13 @@ export function toggleElement(selector, visible) {
 }
 
 export function getElement(selector) {
-  return document.querySelector(selector);
+  return getDocument()?.querySelector(selector) || null;
 }
 
 export function getElements(selector) {
-  return Array.from(document.querySelectorAll(selector));
+  return Array.from(
+    getDocument()?.querySelectorAll(selector) || []
+  );
 }
 
 export function debounce(callback, delay = 300) {
@@ -142,6 +143,8 @@ export function truncateText(value, maxLength = 100) {
   const limit = Math.max(0, Number(maxLength) || 0);
 
   if (text.length <= limit) return text;
+
+  if (limit === 0) return "";
 
   return text.slice(0, limit).trimEnd() + "…";
 }
@@ -175,10 +178,14 @@ export function cloneData(value) {
     return structuredClone(value);
   }
 
+  if (value === undefined) return undefined;
+
   return JSON.parse(JSON.stringify(value));
 }
 
 export function safeJsonParse(value, fallback = null) {
+  if (typeof value !== "string") return fallback;
+
   try {
     return JSON.parse(value);
   } catch {
@@ -187,12 +194,14 @@ export function safeJsonParse(value, fallback = null) {
 }
 
 export function getErrorMessage(error, fallback = "خطایی رخ داد.") {
-  return (
+  if (
     typeof error?.message === "string" &&
     error.message.trim()
-  )
-    ? error.message
-    : fallback;
+  ) {
+    return error.message;
+  }
+
+  return fallback;
 }
 
 export function sleep(milliseconds = 0) {
@@ -201,4 +210,4 @@ export function sleep(milliseconds = 0) {
   return new Promise(resolve => {
     setTimeout(resolve, delay);
   });
-           }
+      }
