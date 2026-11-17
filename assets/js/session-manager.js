@@ -8,29 +8,45 @@ import {
 const SESSIONS_PATH = "userSessions";
 
 function requireUser(actor) {
-  if (!actor?.uid) {
+  if (
+    !actor ||
+    typeof actor.uid !== "string" ||
+    !actor.uid.trim()
+  ) {
     throw new Error("ابتدا وارد حساب خود شوید.");
   }
 }
 
 function createSessionId() {
-  if (globalThis.crypto?.randomUUID) {
-    return globalThis.crypto.randomUUID();
+  if (!globalThis.crypto?.randomUUID) {
+    throw new Error("مرورگر از تولید شناسه امن پشتیبانی نمی‌کند.");
   }
 
-  return [
-    Date.now().toString(36),
-    Math.random().toString(36).slice(2),
-    Math.random().toString(36).slice(2)
-  ].join("-");
+  return globalThis.crypto.randomUUID();
 }
 
-// ثبت ورود جدید
+function safeMetadata(value, fallback) {
+  return typeof value === "string"
+    ? value.trim().slice(0, 120)
+    : fallback;
+}
+
+function sessionPath(uid, recordId) {
+  if (
+    typeof recordId !== "string" ||
+    !/^[a-zA-Z0-9_-]{1,128}$/.test(recordId)
+  ) {
+    throw new Error("شناسه نشست معتبر نیست.");
+  }
+
+  return `${SESSIONS_PATH}/${uid}/${recordId}`;
+}
+
 export async function registerSession(actor, metadata = {}) {
   requireUser(actor);
 
-  const sessionId = createSessionId();
   const now = Date.now();
+  const sessionId = createSessionId();
 
   const session = {
     sessionId,
@@ -38,23 +54,27 @@ export async function registerSession(actor, metadata = {}) {
     createdAt: now,
     lastActivityAt: now,
     status: "active",
-    device: typeof metadata.device === "string"
-      ? metadata.device.slice(0, 120)
-      : "دستگاه ناشناس",
-    browser: typeof metadata.browser === "string"
-      ? metadata.browser.slice(0, 120)
-      : "مرورگر ناشناس"
+    device: safeMetadata(
+      metadata.device,
+      "دستگاه ناشناس"
+    ),
+    browser: safeMetadata(
+      metadata.browser,
+      "مرورگر ناشناس"
+    )
   };
 
-  await createRecord(
+  const recordId = await createRecord(
     `${SESSIONS_PATH}/${actor.uid}`,
     session
   );
 
-  return session;
+  return {
+    ...session,
+    id: recordId
+  };
 }
 
-// دریافت نشست‌های حساب
 export async function getMySessions(actor) {
   requireUser(actor);
 
@@ -65,32 +85,50 @@ export async function getMySessions(actor) {
   return sessions
     .filter(session => session.uid === actor.uid)
     .sort(
-      (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
+      (a, b) =>
+        Number(b.createdAt || 0) -
+        Number(a.createdAt || 0)
     );
 }
 
-// ثبت فعالیت نشست
+async function findMySession(actor, sessionId) {
+  if (
+    typeof sessionId !== "string" ||
+    !sessionId.trim()
+  ) {
+    throw new Error("شناسه نشست معتبر نیست.");
+  }
+
+  const sessions = await getMySessions(actor);
+
+  const session = sessions.find(
+    item => item.sessionId === sessionId
+  );
+
+  if (!session) {
+    throw new Error("نشست موردنظر پیدا نشد.");
+  }
+
+  return session;
+}
+
 export async function updateSessionActivity(
   sessionId,
   actor
 ) {
   requireUser(actor);
 
-  if (!sessionId) {
-    throw new Error("شناسه نشست معتبر نیست.");
-  }
-
-  const sessions = await getMySessions(actor);
-  const session = sessions.find(
-    item => item.sessionId === sessionId
+  const session = await findMySession(
+    actor,
+    sessionId
   );
 
-  if (!session || session.status !== "active") {
-    throw new Error("نشست فعال پیدا نشد.");
+  if (session.status !== "active") {
+    throw new Error("این نشست فعال نیست.");
   }
 
   await updateRecord(
-    `${SESSIONS_PATH}/${actor.uid}/${session.id}`,
+    sessionPath(actor.uid, session.id),
     {
       lastActivityAt: Date.now()
     }
@@ -99,34 +137,35 @@ export async function updateSessionActivity(
   return true;
 }
 
-// خروج از یک نشست ثبت‌شده
 export async function closeSession(
   sessionId,
   actor
 ) {
   requireUser(actor);
 
-  const sessions = await getMySessions(actor);
-  const session = sessions.find(
-    item => item.sessionId === sessionId
+  const session = await findMySession(
+    actor,
+    sessionId
   );
 
-  if (!session || session.status !== "active") {
-    throw new Error("نشست فعال پیدا نشد.");
+  if (session.status !== "active") {
+    return false;
   }
 
+  const now = Date.now();
+
   await updateRecord(
-    `${SESSIONS_PATH}/${actor.uid}/${session.id}`,
+    sessionPath(actor.uid, session.id),
     {
       status: "closed",
-      closedAt: Date.now()
+      closedAt: now,
+      lastActivityAt: now
     }
   );
 
   return true;
 }
 
-// خروج از تمام نشست‌های ثبت‌شده
 export async function closeAllSessions(actor) {
   requireUser(actor);
 
@@ -136,15 +175,28 @@ export async function closeAllSessions(actor) {
     session => session.status === "active"
   );
 
-  for (const session of activeSessions) {
-    await updateRecord(
-      `${SESSIONS_PATH}/${actor.uid}/${session.id}`,
-      {
-        status: "closed",
-        closedAt: Date.now()
-      }
-    );
-  }
+  const now = Date.now();
+
+  await Promise.all(
+    activeSessions.map(session =>
+      updateRecord(
+        sessionPath(actor.uid, session.id),
+        {
+          status: "closed",
+          closedAt: now,
+          lastActivityAt: now
+        }
+      )
+    )
+  );
 
   return activeSessions.length;
-      }
+}
+
+export async function getActiveSessions(actor) {
+  const sessions = await getMySessions(actor);
+
+  return sessions.filter(
+    session => session.status === "active"
+  );
+}
