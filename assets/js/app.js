@@ -50,7 +50,7 @@ const pageNames = {
   tickets: "پشتیبانی",
   archive: "آرشیو",
   statistics: "آمار و گزارش‌ها",
-  staff: "فعالیت و سوابق",
+  staff: "کادر مدیریتی",
   rules: "قوانین کلن",
   settings: "تنظیمات",
   profile: "پروفایل",
@@ -85,15 +85,15 @@ const pageLoaders = {
   tickets: () => import("./pages/tickets.js"),
   archive: () => import("./pages/archive.js"),
   statistics: () => import("./pages/statistics.js"),
+  staff: () => import("./pages/activity.js"),
   rules: () => import("./pages/rules.js"),
   settings: () => import("./pages/settings.js"),
   profile: () => import("./pages/profile.js"),
   notifications: () => import("./pages/notifications.js"),
-  admin: () => import("./pages/admin.js"),
   support: () => import("./pages/bug-reports.js"),
+  admin: () => import("./pages/admin.js"),
   audit: () => import("./pages/audit.js"),
-  activity: () => import("./pages/activity.js"),
-  staff: () => import("./pages/activity.js")
+  activity: () => import("./pages/activity.js")
 };
 
 const renderFunctions = {
@@ -113,15 +113,15 @@ const renderFunctions = {
   tickets: "renderTickets",
   archive: "renderArchive",
   statistics: "renderStatistics",
+  staff: "renderActivity",
   rules: "renderRules",
   settings: "renderSettings",
   profile: "renderProfile",
   notifications: "renderNotifications",
-  admin: "renderAdmin",
   support: "renderBugReports",
+  admin: "renderAdmin",
   audit: "renderAudit",
-  activity: "renderActivity",
-  staff: "renderActivity"
+  activity: "renderActivity"
 };
 
 let currentUser = null;
@@ -130,7 +130,9 @@ let connectionUnsubscribe = null;
 let pageRenderVersion = 0;
 
 function setText(element, value) {
-  if (element) element.textContent = value;
+  if (element) {
+    element.textContent = String(value ?? "");
+  }
 }
 
 function showLoginMessage(message, type = "error") {
@@ -151,8 +153,8 @@ function showToast(message, type = "success") {
   const toast = document.createElement("div");
   toast.className = `toast ${type}`;
   toast.textContent = message;
-  region.appendChild(toast);
 
+  region.appendChild(toast);
   window.setTimeout(() => toast.remove(), 3500);
 }
 
@@ -173,8 +175,12 @@ function startConnectionMonitor() {
 
   connectionUnsubscribe = onValue(
     ref(db, ".info/connected"),
-    snapshot => setConnectionStatus(snapshot.val() === true),
-    () => setConnectionStatus(false)
+    snapshot => {
+      setConnectionStatus(snapshot.val() === true);
+    },
+    () => {
+      setConnectionStatus(false);
+    }
   );
 }
 
@@ -182,18 +188,46 @@ function showLogin() {
   currentUser = null;
   pageRenderVersion++;
 
-  if (elements.loginView) elements.loginView.hidden = false;
-  if (elements.dashboardView) elements.dashboardView.hidden = true;
-  if (elements.loginForm) elements.loginForm.reset();
-  if (elements.pageContent) elements.pageContent.replaceChildren();
-  if (elements.sidebar) elements.sidebar.classList.remove("open");
+  if (elements.loginView) {
+    elements.loginView.hidden = false;
+  }
+
+  if (elements.dashboardView) {
+    elements.dashboardView.hidden = true;
+  }
+
+  if (elements.loginForm) {
+    elements.loginForm.reset();
+  }
+
+  elements.pageContent?.replaceChildren();
+  elements.sidebar?.classList.remove("open");
+}
+
+function applyNavigationPermissions() {
+  if (!elements.nav || !currentUser) return;
+
+  elements.nav.querySelectorAll("a[data-page]").forEach(link => {
+    const allowed = canAccessPage(
+      currentUser,
+      link.dataset.page
+    );
+
+    link.hidden = !allowed;
+    link.setAttribute("aria-hidden", String(!allowed));
+  });
 }
 
 function showDashboard(user) {
   currentUser = user;
 
-  if (elements.loginView) elements.loginView.hidden = true;
-  if (elements.dashboardView) elements.dashboardView.hidden = false;
+  if (elements.loginView) {
+    elements.loginView.hidden = true;
+  }
+
+  if (elements.dashboardView) {
+    elements.dashboardView.hidden = false;
+  }
 
   setText(
     elements.userName,
@@ -222,18 +256,6 @@ function showDashboard(user) {
   }
 }
 
-function applyNavigationPermissions() {
-  if (!elements.nav || !currentUser) return;
-
-  elements.nav.querySelectorAll("a[data-page]").forEach(link => {
-    const page = link.dataset.page;
-    const allowed = canAccessPage(currentUser, page);
-
-    link.hidden = !allowed;
-    link.setAttribute("aria-hidden", String(!allowed));
-  });
-}
-
 function showPageError(error) {
   console.error("Page rendering failed:", error);
 
@@ -258,16 +280,13 @@ function showPageError(error) {
 }
 
 async function renderBuiltPage(page) {
-  if (page === "staff") {
-    const module = await import("./pages/audit.js");
-    return module.renderAudit(elements.pageContent, currentUser);
-  }
-
   const loader = pageLoaders[page];
   const functionName = renderFunctions[page];
 
   if (!loader || !functionName) {
-    throw new Error("صفحه موردنظر هنوز به برنامه متصل نشده است.");
+    throw new Error(
+      "صفحه موردنظر هنوز به برنامه متصل نشده است."
+    );
   }
 
   const module = await loader();
@@ -294,15 +313,20 @@ async function renderPage() {
 
   if (!canAccessPage(currentUser, page)) {
     setText(elements.pageTitle, "دسترسی محدود");
+
     elements.pageContent.textContent =
       "شما اجازه دسترسی به این بخش را ندارید.";
+
     return;
   }
 
   setText(elements.pageTitle, pageNames[page]);
 
   elements.nav?.querySelectorAll("a[data-page]").forEach(link => {
-    link.classList.toggle("active", link.dataset.page === page);
+    link.classList.toggle(
+      "active",
+      link.dataset.page === page
+    );
   });
 
   elements.pageContent.replaceChildren();
@@ -361,9 +385,14 @@ async function handlePasswordReset() {
 
   try {
     await resetPassword(email);
-    showLoginMessage("لینک بازیابی رمز عبور ارسال شد.", "success");
+    showLoginMessage(
+      "لینک بازیابی رمز عبور ارسال شد.",
+      "success"
+    );
   } catch (error) {
-    showLoginMessage(error.message || "بازیابی رمز انجام نشد.");
+    showLoginMessage(
+      error.message || "بازیابی رمز انجام نشد."
+    );
   }
 }
 
@@ -387,12 +416,28 @@ async function handleLogout() {
 }
 
 function bindEvents() {
-  elements.loginForm?.addEventListener("submit", handleLogin);
-  elements.forgotPassword?.addEventListener("click", handlePasswordReset);
-  elements.logoutButton?.addEventListener("click", handleLogout);
+  elements.loginForm?.addEventListener(
+    "submit",
+    handleLogin
+  );
+
+  elements.forgotPassword?.addEventListener(
+    "click",
+    handlePasswordReset
+  );
+
+  elements.logoutButton?.addEventListener(
+    "click",
+    handleLogout
+  );
 
   elements.mobileMenuToggle?.addEventListener("click", () => {
-    elements.sidebar?.classList.toggle("open");
+    const isOpen = elements.sidebar?.classList.toggle("open");
+
+    elements.mobileMenuToggle?.setAttribute(
+      "aria-expanded",
+      String(Boolean(isOpen))
+    );
   });
 
   elements.nav?.addEventListener("click", event => {
@@ -400,6 +445,10 @@ function bindEvents() {
 
     if (link && window.innerWidth <= 900) {
       elements.sidebar?.classList.remove("open");
+      elements.mobileMenuToggle?.setAttribute(
+        "aria-expanded",
+        "false"
+      );
     }
   });
 
@@ -430,7 +479,11 @@ async function handleAuthState(user) {
     showDashboard(session);
 
   } catch (error) {
-    console.error("Authentication verification failed:", error);
+    console.error(
+      "Authentication verification failed:",
+      error
+    );
+
     showLogin();
     showLoginMessage("بررسی حساب ناموفق بود.");
 
@@ -441,7 +494,9 @@ async function handleAuthState(user) {
 
 function initializeApp() {
   if (!elements.loginView || !elements.dashboardView) {
-    console.error("ساختار اصلی صفحه در index.html ناقص است.");
+    console.error(
+      "ساختار اصلی صفحه در index.html ناقص است."
+    );
     return;
   }
 
@@ -451,3 +506,4 @@ function initializeApp() {
 }
 
 initializeApp();
+  
