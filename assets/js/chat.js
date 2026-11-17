@@ -1,370 +1,463 @@
 import {
-  createRecord,
-  readData,
-  updateData
-} from "./database.js";
+  getChatRooms,
+  getMessages,
+  sendMessage,
+  editMessage,
+  deleteOwnMessage,
+  deleteAnyMessage,
+  createChatRoom,
+  deactivateChatRoom,
+  activateChatRoom,
+  deleteChatRoom
+} from "../chat.js";
 
-import { normalizeText } from "./utils.js";
+const $ = (tag, className = "", text = "") => {
+  const el = document.createElement(tag);
 
-const CHAT_PATH = "chats";
-const EDIT_WINDOW = 15 * 60 * 1000;
-const MAX_MESSAGE_LENGTH = 2000;
-
-const FIXED_ROOMS = ["general", "attachment"];
-
-function requireUser(user) {
-  if (
-    !user ||
-    typeof user.uid !== "string" ||
-    !user.uid.trim() ||
-    user.active !== true
-  ) {
-    throw new Error("برای استفاده از چت باید عضو فعال باشید.");
-  }
-}
-
-function requireStaff(user) {
-  requireUser(user);
-
-  if (!["admin", "leader"].includes(user.role)) {
-    throw new Error("فقط لیدر و ادمین اجازه مدیریت اتاق‌ها را دارند.");
-  }
-}
-
-function validateId(id, label) {
-  if (
-    typeof id !== "string" ||
-    !id.trim() ||
-    /[.#$/\[\]]/.test(id)
-  ) {
-    throw new Error(`${label} معتبر نیست.`);
-  }
-}
-
-function validateRoomId(id) {
-  validateId(id, "شناسه اتاق");
-}
-
-function validateMessageId(id) {
-  validateId(id, "شناسه پیام");
-}
-
-function cleanText(value, maxLength) {
-  const result = normalizeText(String(value ?? "")).trim();
-
-  if (!result || result.length > maxLength) {
-    throw new Error(`متن باید بین ۱ تا ${maxLength} کاراکتر باشد.`);
+  if (className) el.className = className;
+  if (text !== undefined && text !== null) {
+    el.textContent = String(text);
   }
 
-  return result;
+  return el;
+};
+
+const isStaff = user =>
+  user?.active === true &&
+  ["admin", "leader"].includes(user.role);
+
+const formatTime = value => {
+  const timestamp = Number(value);
+  if (!timestamp) return "";
+
+  return new Intl.DateTimeFormat("fa-IR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    year: "numeric",
+    month: "short",
+    day: "numeric"
+  }).format(new Date(timestamp));
+};
+
+function makeButton(text, className, callback) {
+  const button = $("button", className, text);
+  button.type = "button";
+  button.addEventListener("click", callback);
+  return button;
 }
 
-function validateMessage(text) {
-  return cleanText(text, MAX_MESSAGE_LENGTH);
+function showMessage(container, text, type = "info") {
+  container.replaceChildren(
+    $("div", `chat-notice ${type}`, text)
+  );
 }
 
-async function requireAvailableRoom(roomId, user) {
-  validateRoomId(roomId);
+function createRoomForm(container, user, reload) {
+  if (!isStaff(user)) return;
 
-  const rooms = await getChatRooms(user);
+  const form = $("form", "card chat-create-room");
 
-  if (!rooms.some(room => room.id === roomId)) {
-    throw new Error("این اتاق وجود ندارد یا غیرفعال است.");
-  }
-}
+  form.appendChild(
+    $("h3", "card-title", "ساخت اتاق جدید")
+  );
 
-export async function getChatRooms(user) {
-  requireUser(user);
+  const title = $("input", "form-input");
+  title.type = "text";
+  title.placeholder = "نام اتاق";
+  title.maxLength = 50;
+  title.required = true;
 
-  const customRooms = await readData(`${CHAT_PATH}/rooms`);
+  const description = $("input", "form-input");
+  description.type = "text";
+  description.placeholder = "توضیحات اتاق (اختیاری)";
+  description.maxLength = 300;
 
-  const rooms = [
-    {
-      id: "general",
-      title: "چت عمومی",
-      type: "fixed"
-    },
-    {
-      id: "attachment",
-      title: "پیوست",
-      type: "fixed"
+  const submit = $("button", "primary-button", "ساخت اتاق");
+  submit.type = "submit";
+
+  form.append(title, description, submit);
+
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+
+    submit.disabled = true;
+
+    try {
+      await createChatRoom({
+        title: title.value,
+        description: description.value
+      }, user);
+
+      form.reset();
+      await reload();
+
+    } catch (error) {
+      alert(error.message || "ساخت اتاق انجام نشد.");
+    } finally {
+      submit.disabled = false;
     }
-  ];
+  });
 
-  if (
-    customRooms &&
-    typeof customRooms === "object" &&
-    !Array.isArray(customRooms)
-  ) {
-    for (const [id, room] of Object.entries(customRooms)) {
-      if (
-        !room ||
-        typeof room !== "object" ||
-        Array.isArray(room) ||
-        FIXED_ROOMS.includes(id) ||
-        room.active === false ||
-        room.deletedAt
-      ) {
-        continue;
+  container.appendChild(form);
+}
+
+function createRoomList(rooms, selectedId, onSelect, user, reload) {
+  const wrapper = $("section", "chat-room-list");
+
+  wrapper.appendChild(
+    $("h3", "section-title", "اتاق‌های گفتگو")
+  );
+
+  const list = $("div", "chat-room-buttons");
+
+  rooms.forEach(room => {
+    const item = $("div", "chat-room-item");
+
+    item.appendChild(
+      makeButton(
+        room.title,
+        room.id === selectedId
+          ? "chat-room-button active"
+          : "chat-room-button",
+        () => onSelect(room.id)
+      )
+    );
+
+    if (room.description) {
+      item.appendChild(
+        $("p", "chat-room-description", room.description)
+      );
+    }
+
+    if (isStaff(user) && room.type === "custom") {
+      const controls = $("div", "chat-room-controls");
+
+      if (room.active === false) {
+        controls.appendChild(
+          makeButton(
+            "فعال‌سازی",
+            "small-button",
+            async () => {
+              try {
+                await activateChatRoom(room.id, user);
+                await reload();
+              } catch (error) {
+                alert(error.message || "فعال‌سازی انجام نشد.");
+              }
+            }
+          )
+        );
+      } else {
+        controls.append(
+          makeButton(
+            "غیرفعال‌سازی",
+            "small-button",
+            async () => {
+              if (!confirm("این اتاق غیرفعال شود؟")) return;
+
+              try {
+                await deactivateChatRoom(room.id, user);
+                await reload();
+              } catch (error) {
+                alert(error.message || "عملیات انجام نشد.");
+              }
+            }
+          ),
+          makeButton(
+            "حذف اتاق",
+            "small-button danger-button",
+            async () => {
+              if (!confirm("این اتاق حذف منطقی شود؟")) return;
+
+              try {
+                await deleteChatRoom(room.id, user);
+                await reload();
+              } catch (error) {
+                alert(error.message || "حذف اتاق انجام نشد.");
+              }
+            }
+          )
+        );
       }
 
-      rooms.push({
-        id,
-        title: normalizeText(room.title || "اتاق بدون نام"),
-        description: normalizeText(room.description || ""),
-        type: "custom"
-      });
+      item.appendChild(controls);
     }
-  }
 
-  return rooms;
-}
-
-export async function createChatRoom(data, actor) {
-  requireStaff(actor);
-
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
-    throw new Error("اطلاعات اتاق معتبر نیست.");
-  }
-
-  const title = cleanText(data.title, 50);
-  const description = normalizeText(
-    String(data.description ?? "")
-  ).trim();
-
-  if (title.length < 2) {
-    throw new Error("نام اتاق باید حداقل ۲ حرف باشد.");
-  }
-
-  if (description.length > 300) {
-    throw new Error("توضیحات اتاق حداکثر ۳۰۰ حرف است.");
-  }
-
-  return createRecord(`${CHAT_PATH}/rooms`, {
-    title,
-    description,
-    active: true,
-    createdBy: actor.uid,
-    createdAt: Date.now()
+    list.appendChild(item);
   });
+
+  wrapper.appendChild(list);
+  return wrapper;
 }
 
-export async function getMessages(roomId, user) {
-  requireUser(user);
-  await requireAvailableRoom(roomId, user);
+function createMessageCard(message, user, roomId, reload) {
+  const own = message.uid === user.uid;
 
-  const data = await readData(
-    `${CHAT_PATH}/messages/${roomId}`
+  const card = $("article",
+    own ? "chat-message own-message" : "chat-message"
   );
 
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
-    return [];
-  }
+  const header = $("div", "chat-message-header");
 
-  return Object.entries(data)
-    .filter(([, message]) =>
-      message &&
-      typeof message === "object" &&
-      !Array.isArray(message) &&
-      typeof message.text === "string" &&
-      typeof message.uid === "string" &&
-      message.deleted !== true
-    )
-    .map(([id, message]) => ({
-      ...message,
-      id,
-      createdAt: Number(message.createdAt) || 0
-    }))
-    .sort((a, b) => a.createdAt - b.createdAt);
-}
-
-export async function sendMessage(roomId, text, user) {
-  requireUser(user);
-  await requireAvailableRoom(roomId, user);
-
-  const message = validateMessage(text);
-
-  return createRecord(
-    `${CHAT_PATH}/messages/${roomId}`,
-    {
-      uid: user.uid,
-      displayName: normalizeText(
-        String(user.displayName || "عضو")
-      ).slice(0, 50),
-      text: message,
-      edited: false,
-      deleted: false
-    }
+  header.append(
+    $("strong", "chat-sender",
+      own ? "شما" : message.displayName || "عضو کلن"
+    ),
+    $("span", "chat-time", formatTime(message.createdAt))
   );
+
+  card.appendChild(header);
+
+  card.appendChild(
+    $("p", "chat-message-text", message.text)
+  );
+
+  if (message.edited) {
+    card.appendChild(
+      $("small", "chat-edited", "ویرایش‌شده")
+    );
+  }
+
+  const actions = $("div", "chat-message-actions");
+
+  if (own) {
+    actions.append(
+      makeButton(
+        "ویرایش",
+        "small-button",
+        async () => {
+          const updated = prompt("متن جدید پیام:", message.text);
+
+          if (updated === null || !updated.trim()) return;
+
+          try {
+            await editMessage(roomId, message.id, updated, user);
+            await reload();
+          } catch (error) {
+            alert(error.message || "ویرایش پیام انجام نشد.");
+          }
+        }
+      ),
+      makeButton(
+        "حذف پیام",
+        "small-button danger-button",
+        async () => {
+          if (!confirm("پیام حذف شود؟")) return;
+
+          try {
+            await deleteOwnMessage(roomId, message.id, user);
+            await reload();
+          } catch (error) {
+            alert(error.message || "حذف پیام انجام نشد.");
+          }
+        }
+      )
+    );
+  }
+
+  if (isStaff(user) && !own) {
+    actions.appendChild(
+      makeButton(
+        "حذف مدیریتی",
+        "small-button danger-button",
+        async () => {
+          if (!confirm("این پیام حذف شود؟")) return;
+
+          try {
+            await deleteAnyMessage(roomId, message.id, user);
+            await reload();
+          } catch (error) {
+            alert(error.message || "حذف پیام انجام نشد.");
+          }
+        }
+      )
+    );
+  }
+
+  if (actions.childElementCount) {
+    card.appendChild(actions);
+  }
+
+  return card;
 }
 
-export async function editMessage(
-  roomId,
-  messageId,
-  newText,
-  user
-) {
-  requireUser(user);
-  validateRoomId(roomId);
-  validateMessageId(messageId);
-  await requireAvailableRoom(roomId, user);
+function createMessageForm(container, roomId, user, reload) {
+  const form = $("form", "chat-message-form");
 
-  const path = `${CHAT_PATH}/messages/${roomId}/${messageId}`;
-  const message = await readData(path);
+  const input = $("textarea", "chat-message-input");
+  input.placeholder = "پیامت را بنویس...";
+  input.maxLength = 2000;
+  input.rows = 3;
+  input.required = true;
 
-  if (
-    !message ||
-    message.uid !== user.uid ||
-    message.deleted === true
-  ) {
-    throw new Error("فقط نویسنده می‌تواند پیام خودش را ویرایش کند.");
-  }
+  const submit = $("button", "primary-button", "ارسال پیام");
+  submit.type = "submit";
 
-  const createdAt = Number(message.createdAt) || 0;
+  form.append(input, submit);
 
-  if (
-    !createdAt ||
-    Date.now() - createdAt > EDIT_WINDOW
-  ) {
-    throw new Error("مهلت ویرایش پیام (۱۵ دقیقه) تمام شده است.");
-  }
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
 
-  await updateData(path, {
-    text: validateMessage(newText),
-    edited: true,
-    editedAt: Date.now()
-  });
+    const value = input.value.trim();
+    if (!value) return;
 
-  return true;
-}
+    submit.disabled = true;
 
-export async function deleteOwnMessage(
-  roomId,
-  messageId,
-  user
-) {
-  requireUser(user);
-  validateRoomId(roomId);
-  validateMessageId(messageId);
-  await requireAvailableRoom(roomId, user);
-
-  const path = `${CHAT_PATH}/messages/${roomId}/${messageId}`;
-  const message = await readData(path);
-
-  if (
-    !message ||
-    message.uid !== user.uid ||
-    message.deleted === true
-  ) {
-    throw new Error("فقط نویسنده می‌تواند پیام خودش را حذف کند.");
-  }
-
-  await updateData(path, {
-    text: "",
-    deleted: true,
-    deletedAt: Date.now(),
-    deletedBy: user.uid
-  });
-
-  return true;
-}
-
-export async function deleteAnyMessage(
-  roomId,
-  messageId,
-  actor
-) {
-  requireStaff(actor);
-  validateRoomId(roomId);
-  validateMessageId(messageId);
-
-  const path = `${CHAT_PATH}/messages/${roomId}/${messageId}`;
-  const message = await readData(path);
-
-  if (!message || message.deleted === true) {
-    throw new Error("پیام موردنظر پیدا نشد.");
-  }
-
-  await updateData(path, {
-    text: "",
-    deleted: true,
-    deletedAt: Date.now(),
-    deletedBy: actor.uid
-  });
-
-  return true;
-}
-
-export async function deactivateChatRoom(roomId, actor) {
-  requireStaff(actor);
-  validateRoomId(roomId);
-
-  if (FIXED_ROOMS.includes(roomId)) {
-    throw new Error("اتاق‌های اصلی قابل غیرفعال‌سازی نیستند.");
-  }
-
-  const path = `${CHAT_PATH}/rooms/${roomId}`;
-  const room = await readData(path);
-
-  if (!room) {
-    throw new Error("اتاق موردنظر پیدا نشد.");
-  }
-
-  await updateData(path, {
-    active: false,
-    deactivatedBy: actor.uid,
-    deactivatedAt: Date.now()
-  });
-
-  return true;
-}
-
-export async function activateChatRoom(roomId, actor) {
-  requireStaff(actor);
-  validateRoomId(roomId);
-
-  if (FIXED_ROOMS.includes(roomId)) {
-    throw new Error("اتاق اصلی نیازی به فعال‌سازی ندارد.");
-  }
-
-  const path = `${CHAT_PATH}/rooms/${roomId}`;
-  const room = await readData(path);
-
-  if (!room || room.deletedAt) {
-    throw new Error("اتاق موردنظر پیدا نشد یا حذف شده است.");
-  }
-
-  await updateData(path, {
-    active: true,
-    activatedBy: actor.uid,
-    activatedAt: Date.now()
-  });
-
-  return true;
-}
-
-export async function deleteChatRoom(roomId, actor) {
-  requireStaff(actor);
-  validateRoomId(roomId);
-
-  if (FIXED_ROOMS.includes(roomId)) {
-    throw new Error("اتاق‌های اصلی قابل حذف نیستند.");
-  }
-
-  const path = `${CHAT_PATH}/rooms/${roomId}`;
-  const room = await readData(path);
-
-  if (!room || room.deletedAt) {
-    throw new Error("اتاق موردنظر پیدا نشد.");
-  }
-
-  const now = Date.now();
-
-  await updateData(path, {
-    active: false,
-    deletedAt: now,
-    deletedBy: actor.uid
-  });
-
-  return true;
+    try {
+      await sendMessage(roomId, value, user);
+      input.value = "";
+      await reload();
+    } catch (error) {
+      alert(error.message || "ارسال پیام انجام نشد.");
+    } finally {
+      submit.disabled = false;
     }
+  });
+
+  container.appendChild(form);
+}
+
+export async function renderChat(container, user) {
+  if (!(container instanceof HTMLElement)) {
+    throw new Error("محل نمایش چت معتبر نیست.");
+  }
+
+  if (!user?.uid || user.active !== true) {
+    showMessage(
+      container,
+      "برای استفاده از چت باید عضو فعال باشید.",
+      "error"
+    );
+    return;
+  }
+
+  let selectedRoomId = null;
+
+  const loadPage = async () => {
+    container.replaceChildren(
+      $("p", "loading-state", "در حال دریافت اطلاعات چت...")
+    );
+
+    try {
+      const rooms = await getChatRooms(user);
+
+      if (!rooms.length) {
+        showMessage(container, "اتاقی برای نمایش وجود ندارد.");
+        return;
+      }
+
+      if (
+        !selectedRoomId ||
+        !rooms.some(room => room.id === selectedRoomId)
+      ) {
+        selectedRoomId = rooms[0].id;
+      }
+
+      const messages = await getMessages(selectedRoomId, user);
+
+      const page = $("div", "chat-page");
+
+      const header = $("section", "card chat-header");
+
+      header.append(
+        $("h1", "card-title", "چت کلن INVICTUS"),
+        $("p", "",
+          "گفتگو با اعضای فعال کلن در اتاق‌های عمومی و اختصاصی"
+        ),
+        makeButton(
+          "به‌روزرسانی",
+          "secondary-button",
+          loadPage
+        )
+      );
+
+      page.appendChild(header);
+
+      createRoomForm(page, user, loadPage);
+
+      const layout = $("div", "chat-layout");
+
+      const roomsPanel = createRoomList(
+        rooms,
+        selectedRoomId,
+        async roomId => {
+          selectedRoomId = roomId;
+          await loadPage();
+        },
+        user,
+        loadPage
+      );
+
+      const conversation = $("section", "chat-conversation");
+
+      const selectedRoom = rooms.find(
+        room => room.id === selectedRoomId
+      );
+
+      conversation.appendChild(
+        $("h2", "chat-current-room",
+          selectedRoom?.title || "گفتگو"
+        )
+      );
+
+      const messageList = $("div", "chat-message-list");
+
+      if (!messages.length) {
+        messageList.appendChild(
+          $("div", "empty-state",
+            "هنوز پیامی در این اتاق ارسال نشده است."
+          )
+        );
+      } else {
+        messages.forEach(message => {
+          messageList.appendChild(
+            createMessageCard(
+              message,
+              user,
+              selectedRoomId,
+              loadPage
+            )
+          );
+        });
+      }
+
+      conversation.appendChild(messageList);
+
+      createMessageForm(
+        conversation,
+        selectedRoomId,
+        user,
+        loadPage
+      );
+
+      layout.append(roomsPanel, conversation);
+      page.appendChild(layout);
+
+      container.replaceChildren(page);
+
+    } catch (error) {
+      console.error("Chat page error:", error);
+
+      const errorBox = $("section", "card error-state");
+
+      errorBox.append(
+        $("p", "",
+          error.message || "بارگذاری چت با خطا مواجه شد."
+        ),
+        makeButton(
+          "تلاش دوباره",
+          "secondary-button",
+          loadPage
+        )
+      );
+
+      container.replaceChildren(errorBox);
+    }
+  };
+
+  container.replaceChildren(
+    $("p", "loading-state", "در حال بارگذاری اتاق‌های گفتگو...")
+  );
+
+  await loadPage();
+              }
