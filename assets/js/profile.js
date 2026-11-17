@@ -15,6 +15,8 @@ function validateUid(uid) {
   ) {
     throw new Error("شناسه کاربر معتبر نیست.");
   }
+
+  return uid;
 }
 
 function requireOwner(uid, actor) {
@@ -25,18 +27,42 @@ function requireOwner(uid, actor) {
     actor.active !== true ||
     actor.uid !== uid
   ) {
-    throw new Error("فقط صاحب حساب می‌تواند این پروفایل را تغییر دهد.");
+    throw new Error(
+      "فقط صاحب حساب می‌تواند این پروفایل را تغییر دهد."
+    );
   }
+}
+
+function cleanText(value, label, maxLength) {
+  if (typeof value !== "string") {
+    throw new Error(`${label} معتبر نیست.`);
+  }
+
+  const clean = normalizeText(value);
+
+  if (clean.length > maxLength) {
+    throw new Error(
+      `${label} نمی‌تواند بیشتر از ${maxLength} کاراکتر باشد.`
+    );
+  }
+
+  return clean;
 }
 
 export async function getProfile(uid, actor) {
   validateUid(uid);
 
-  if (!actor?.uid || actor.active !== true || actor.uid !== uid) {
-    throw new Error("اجازه مشاهده اطلاعات خصوصی این پروفایل را ندارید.");
+  if (
+    !actor?.uid ||
+    actor.active !== true ||
+    actor.uid !== uid
+  ) {
+    throw new Error(
+      "اجازه مشاهده اطلاعات خصوصی این پروفایل را ندارید."
+    );
   }
 
-  return await readData(`profiles/${uid}`);
+  return await readData(`users/${uid}`);
 }
 
 export async function updateOwnProfile(uid, changes, actor) {
@@ -59,75 +85,87 @@ export async function updateOwnProfile(uid, changes, actor) {
     "bio"
   ];
 
+  const unknownFields = Object.keys(changes).filter(
+    field => !allowedFields.includes(field)
+  );
+
+  if (unknownFields.length) {
+    throw new Error(
+      "فقط اطلاعات شخصی مجاز قابل ویرایش هستند."
+    );
+  }
+
   const safeChanges = {};
 
-  for (const field of allowedFields) {
-    if (Object.hasOwn(changes, field)) {
-      safeChanges[field] = changes[field];
-    }
-  }
-
-  if (Object.keys(safeChanges).length === 0) {
-    throw new Error("اطلاعاتی برای ویرایش ارسال نشده است.");
-  }
-
-  if (safeChanges.displayName !== undefined) {
-    safeChanges.displayName = normalizeText(
-      safeChanges.displayName
+  if (Object.hasOwn(changes, "displayName")) {
+    safeChanges.displayName = cleanText(
+      changes.displayName,
+      "نام نمایشی",
+      40
     );
 
-    if (
-      safeChanges.displayName.length < 2 ||
-      safeChanges.displayName.length > 40
-    ) {
-      throw new Error("نام نمایشی باید بین ۲ تا ۴۰ حرف باشد.");
+    if (safeChanges.displayName.length < 2) {
+      throw new Error(
+        "نام نمایشی باید حداقل ۲ کاراکتر باشد."
+      );
     }
   }
 
-  if (safeChanges.gameName !== undefined) {
-    safeChanges.gameName = normalizeText(
-      safeChanges.gameName
+  if (Object.hasOwn(changes, "gameName")) {
+    safeChanges.gameName = cleanText(
+      changes.gameName,
+      "نام داخل بازی",
+      40
     );
 
-    if (
-      safeChanges.gameName.length < 2 ||
-      safeChanges.gameName.length > 40
-    ) {
-      throw new Error("نام داخل بازی باید بین ۲ تا ۴۰ حرف باشد.");
+    if (safeChanges.gameName.length < 2) {
+      throw new Error(
+        "نام داخل بازی باید حداقل ۲ کاراکتر باشد."
+      );
     }
   }
 
-  if (safeChanges.gameLevel !== undefined) {
-    const level = Number(safeChanges.gameLevel);
+  if (Object.hasOwn(changes, "gameLevel")) {
+    const level = Number(changes.gameLevel);
 
-    if (!Number.isInteger(level) || level < 1 || level > 500) {
-      throw new Error("لول بازی معتبر نیست.");
+    if (
+      !Number.isInteger(level) ||
+      level < 1 ||
+      level > 500
+    ) {
+      throw new Error("لول بازی باید بین ۱ تا ۵۰۰ باشد.");
     }
 
     safeChanges.gameLevel = level;
   }
 
   for (const field of ["telegram", "rubika"]) {
-    if (safeChanges[field] !== undefined) {
-      safeChanges[field] = normalizeText(safeChanges[field]);
-
-      if (safeChanges[field].length > 60) {
-        throw new Error(`مقدار ${field} بیش از حد طولانی است.`);
-      }
+    if (Object.hasOwn(changes, field)) {
+      safeChanges[field] = cleanText(
+        changes[field],
+        field === "telegram" ? "آیدی تلگرام" : "آیدی روبیکا",
+        60
+      );
     }
   }
 
-  if (safeChanges.bio !== undefined) {
-    safeChanges.bio = normalizeText(safeChanges.bio);
+  if (Object.hasOwn(changes, "bio")) {
+    safeChanges.bio = cleanText(
+      changes.bio,
+      "درباره من",
+      300
+    );
+  }
 
-    if (safeChanges.bio.length > 300) {
-      throw new Error("توضیحات پروفایل حداکثر ۳۰۰ حرف است.");
-    }
+  if (!Object.keys(safeChanges).length) {
+    throw new Error(
+      "اطلاعاتی برای ویرایش ارسال نشده است."
+    );
   }
 
   safeChanges.updatedAt = Date.now();
 
-  await updateData(`profiles/${uid}`, safeChanges);
+  await updateData(`users/${uid}`, safeChanges);
 
   return true;
 }
@@ -135,7 +173,7 @@ export async function updateOwnProfile(uid, changes, actor) {
 export async function getPublicProfile(uid) {
   validateUid(uid);
 
-  const profile = await readData(`profiles/${uid}`);
+  const profile = await readData(`users/${uid}`);
 
   if (!profile) return null;
 
@@ -144,6 +182,6 @@ export async function getPublicProfile(uid) {
     gameName: profile.gameName || "",
     gameLevel: profile.gameLevel || null,
     bio: profile.bio || "",
-    joinedAt: profile.joinedAt || null
+    joinedAt: profile.joinedAt || profile.createdAt || null
   };
-        }
+}
