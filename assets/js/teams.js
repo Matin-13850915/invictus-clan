@@ -19,10 +19,31 @@ function requireStaff(actor) {
   }
 }
 
+function requireAdmin(actor) {
+  if (!actor?.uid || actor.role !== "admin") {
+    throw new Error("این عملیات فقط برای ادمین مجاز است.");
+  }
+}
+
+function validateId(value, label = "شناسه") {
+  if (
+    typeof value !== "string" ||
+    !/^[A-Za-z0-9_-]{1,128}$/.test(value)
+  ) {
+    throw new Error(`${label} معتبر نیست.`);
+  }
+
+  return value;
+}
+
 function validateTeam(data) {
-  const name = normalizeText(data?.name);
-  const description = normalizeText(data?.description || "");
-  const type = data?.type;
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("اطلاعات تیم معتبر نیست.");
+  }
+
+  const name = normalizeText(data.name || "");
+  const description = normalizeText(data.description || "");
+  const type = data.type;
 
   if (name.length < 2 || name.length > 40) {
     throw new Error("نام تیم باید بین ۲ تا ۴۰ حرف باشد.");
@@ -39,15 +60,31 @@ function validateTeam(data) {
   return { name, description, type };
 }
 
+function validateMemberUid(uid) {
+  return validateId(uid, "شناسه عضو");
+}
+
 export async function createTeam(data, actor) {
   requireStaff(actor);
 
   const team = validateTeam(data);
+  const captainUid = data.captainUid
+    ? validateMemberUid(data.captainUid)
+    : null;
+
+  const members = {};
+
+  if (captainUid) {
+    members[captainUid] = {
+      joinedAt: Date.now(),
+      addedBy: actor.uid
+    };
+  }
 
   return await createRecord(PATH, {
     ...team,
-    captainUid: data.captainUid || null,
-    members: {},
+    captainUid,
+    members,
     active: true,
     createdBy: actor.uid,
     createdAt: Date.now(),
@@ -55,15 +92,24 @@ export async function createTeam(data, actor) {
   });
 }
 
-export async function getTeams(options = {}) {
+export async function getTeams(options = {}, actor = null) {
+  const includeInactive = options.includeInactive === true;
+
+  if (includeInactive) {
+    requireStaff(actor);
+  }
+
   const data = await readData(PATH);
 
-  if (!data) return [];
+  if (!data || typeof data !== "object") {
+    return [];
+  }
 
   return Object.entries(data)
-    .map(([id, team]) => ({ id, ...team }))
+    .filter(([, team]) => team && typeof team === "object")
+    .map(([id, team]) => ({ ...team, id }))
     .filter(team => {
-      if (!options.includeInactive && team.active === false) {
+      if (!includeInactive && team.active === false) {
         return false;
       }
 
@@ -73,20 +119,39 @@ export async function getTeams(options = {}) {
 
       return true;
     })
-    .sort((a, b) => a.name.localeCompare(b.name, "fa"));
+    .sort((a, b) =>
+      String(a.name || "").localeCompare(
+        String(b.name || ""),
+        "fa"
+      )
+    );
+}
+
+export async function getTeam(teamId) {
+  const id = validateId(teamId, "شناسه تیم");
+  const team = await readData(`${PATH}/${id}`);
+
+  if (!team || team.active === false) {
+    return null;
+  }
+
+  return { ...team, id };
 }
 
 export async function updateTeam(teamId, data, actor) {
   requireStaff(actor);
 
-  if (!teamId) {
-    throw new Error("شناسه تیم معتبر نیست.");
+  const id = validateId(teamId, "شناسه تیم");
+  const teamData = validateTeam(data);
+
+  const existing = await readData(`${PATH}/${id}`);
+
+  if (!existing) {
+    throw new Error("تیم موردنظر پیدا نشد.");
   }
 
-  const team = validateTeam(data);
-
-  await updateData(`${PATH}/${teamId}`, {
-    ...team,
+  await updateData(`${PATH}/${id}`, {
+    ...teamData,
     updatedBy: actor.uid,
     updatedAt: Date.now()
   });
@@ -97,12 +162,21 @@ export async function updateTeam(teamId, data, actor) {
 export async function addTeamMember(teamId, memberUid, actor) {
   requireStaff(actor);
 
-  if (!teamId || !memberUid) {
-    throw new Error("اطلاعات عضو معتبر نیست.");
+  const id = validateId(teamId, "شناسه تیم");
+  const uid = validateMemberUid(memberUid);
+
+  const team = await readData(`${PATH}/${id}`);
+
+  if (!team || team.active === false) {
+    throw new Error("تیم فعال پیدا نشد.");
   }
 
-  await updateData(`${PATH}/${teamId}/members`, {
-    [memberUid]: {
+  if (team.members?.[uid]) {
+    throw new Error("این عضو از قبل در تیم حضور دارد.");
+  }
+
+  await updateData(`${PATH}/${id}/members`, {
+    [uid]: {
       joinedAt: Date.now(),
       addedBy: actor.uid
     }
@@ -114,19 +188,20 @@ export async function addTeamMember(teamId, memberUid, actor) {
 export async function removeTeamMember(teamId, memberUid, actor) {
   requireStaff(actor);
 
-  if (!teamId || !memberUid) {
-    throw new Error("اطلاعات عضو معتبر نیست.");
-  }
+  const id = validateId(teamId, "شناسه تیم");
+  const uid = validateMemberUid(memberUid);
 
-  const team = await readData(`${PATH}/${teamId}`);
+  const team = await readData(`${PATH}/${id}`);
 
-  if (!team?.members?.[memberUid]) {
+  if (!team?.members?.[uid]) {
     throw new Error("این عضو در تیم وجود ندارد.");
   }
 
-  const { deleteData } = await import("./database.js");
+  if (team.captainUid === uid) {
+    throw new Error("ابتدا کاپیتان جدیدی انتخاب کنید.");
+  }
 
-  await deleteData(`${PATH}/${teamId}/members/${memberUid}`);
+  await deleteData(`${PATH}/${id}/members/${uid}`);
 
   return true;
 }
@@ -134,18 +209,21 @@ export async function removeTeamMember(teamId, memberUid, actor) {
 export async function setTeamCaptain(teamId, captainUid, actor) {
   requireStaff(actor);
 
-  if (!teamId || !captainUid) {
-    throw new Error("اطلاعات کاپیتان معتبر نیست.");
+  const id = validateId(teamId, "شناسه تیم");
+  const uid = validateMemberUid(captainUid);
+
+  const team = await readData(`${PATH}/${id}`);
+
+  if (!team || team.active === false) {
+    throw new Error("تیم فعال پیدا نشد.");
   }
 
-  const team = await readData(`${PATH}/${teamId}`);
-
-  if (!team?.members?.[captainUid]) {
+  if (!team.members?.[uid]) {
     throw new Error("کاپیتان باید عضو همین تیم باشد.");
   }
 
-  await updateData(`${PATH}/${teamId}`, {
-    captainUid,
+  await updateData(`${PATH}/${id}`, {
+    captainUid: uid,
     captainUpdatedBy: actor.uid,
     updatedAt: Date.now()
   });
@@ -156,27 +234,55 @@ export async function setTeamCaptain(teamId, captainUid, actor) {
 export async function deactivateTeam(teamId, actor) {
   requireStaff(actor);
 
-  if (!teamId) {
-    throw new Error("شناسه تیم معتبر نیست.");
+  const id = validateId(teamId, "شناسه تیم");
+  const team = await readData(`${PATH}/${id}`);
+
+  if (!team) {
+    throw new Error("تیم موردنظر پیدا نشد.");
   }
 
-  await updateData(`${PATH}/${teamId}`, {
+  await updateData(`${PATH}/${id}`, {
     active: false,
     deactivatedBy: actor.uid,
-    deactivatedAt: Date.now()
+    deactivatedAt: Date.now(),
+    updatedAt: Date.now()
+  });
+
+  return true;
+}
+
+export async function activateTeam(teamId, actor) {
+  requireStaff(actor);
+
+  const id = validateId(teamId, "شناسه تیم");
+  const team = await readData(`${PATH}/${id}`);
+
+  if (!team) {
+    throw new Error("تیم موردنظر پیدا نشد.");
+  }
+
+  await updateData(`${PATH}/${id}`, {
+    active: true,
+    activatedBy: actor.uid,
+    activatedAt: Date.now(),
+    updatedAt: Date.now()
   });
 
   return true;
 }
 
 export async function deleteTeam(teamId, actor) {
-  requireStaff(actor);
+  requireAdmin(actor);
 
-  if (!teamId) {
-    throw new Error("شناسه تیم معتبر نیست.");
+  const id = validateId(teamId, "شناسه تیم");
+  const team = await readData(`${PATH}/${id}`);
+
+  if (!team) {
+    throw new Error("تیم موردنظر پیدا نشد.");
   }
 
-  await deleteData(`${PATH}/${teamId}`);
+  await deleteData(`${PATH}/${id}`);
 
   return true;
-}
+      }
+      
