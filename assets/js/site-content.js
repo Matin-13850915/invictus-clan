@@ -2,6 +2,7 @@
 import {
   createRecord,
   getRecord,
+  getAllRecords,
   updateRecord
 } from "./database.js";
 
@@ -9,7 +10,6 @@ import { createId } from "./utils.js";
 
 const CONTENT_PATH = "siteContent";
 const HISTORY_PATH = "siteContentHistory";
-
 const MAX_TEXT_LENGTH = 10000;
 
 function requireAdmin(actor) {
@@ -30,27 +30,33 @@ function validateKey(key) {
 }
 
 function validateText(value) {
-  if (typeof value !== "string") {
-    throw new Error("محتوا باید متن باشد.");
-  }
-
-  if (value.length > MAX_TEXT_LENGTH) {
-    throw new Error("طول محتوا بیش از حد مجاز است.");
+  if (typeof value !== "string" || value.length > MAX_TEXT_LENGTH) {
+    throw new Error("محتوا باید متن معتبر و حداکثر ۱۰۰۰۰ کاراکتر باشد.");
   }
 
   return value;
 }
 
-// دریافت یک محتوای مشخص
+function validateHistoryId(id) {
+  if (typeof id !== "string" || !/^[a-zA-Z0-9_-]{1,150}$/.test(id)) {
+    throw new Error("شناسه تاریخچه معتبر نیست.");
+  }
+
+  return id;
+}
+
 export async function getSiteContent(key) {
   validateKey(key);
 
   const item = await getRecord(`${CONTENT_PATH}/${key}`);
 
-  return item || null;
+  if (!item || item.deleted === true) {
+    return null;
+  }
+
+  return item;
 }
 
-// دریافت چند محتوای مشخص
 export async function getSiteContents(keys = []) {
   if (!Array.isArray(keys)) {
     throw new Error("فهرست شناسه‌ها معتبر نیست.");
@@ -58,7 +64,7 @@ export async function getSiteContents(keys = []) {
 
   const result = {};
 
-  for (const key of keys) {
+  for (const key of [...new Set(keys)]) {
     validateKey(key);
     result[key] = await getSiteContent(key);
   }
@@ -66,112 +72,88 @@ export async function getSiteContents(keys = []) {
   return result;
 }
 
-// ثبت محتوای جدید یا ویرایش محتوای قبلی
 export async function saveSiteContent(key, value, actor) {
   requireAdmin(actor);
 
   validateKey(key);
   const content = validateText(value);
 
-  const previous = await getSiteContent(key);
+  const previous = await getRecord(`${CONTENT_PATH}/${key}`);
   const now = Date.now();
+  const version = (previous?.version || 0) + 1;
 
   const record = {
     key,
     value: content,
+    deleted: false,
     updatedAt: now,
     updatedBy: actor.uid,
-    version: (previous?.version || 0) + 1
+    version,
+    createdAt: previous?.createdAt || now,
+    createdBy: previous?.createdBy || actor.uid
   };
-
-  if (!previous) {
-    record.createdAt = now;
-    record.createdBy = actor.uid;
-  }
-
-  await updateRecord(`${CONTENT_PATH}/${key}`, record);
 
   const history = {
     id: createId(),
     contentKey: key,
-    previousValue: previous?.value ?? null,
+    previousValue: previous?.deleted ? "" : previous?.value ?? null,
     newValue: content,
     changedBy: actor.uid,
     changedAt: now,
-    version: record.version
+    action: previous ? "update" : "create",
+    version
   };
 
+  await updateRecord(`${CONTENT_PATH}/${key}`, record);
   await createRecord(HISTORY_PATH, history);
 
   return record;
 }
 
-// بازگردانی نسخه قبلی محتوا
-export async function restoreSiteContent(
-  key,
-  historyId,
-  actor
-) {
+export async function restoreSiteContent(key, historyId, actor) {
   requireAdmin(actor);
 
   validateKey(key);
+  validateHistoryId(historyId);
 
-  const history = await getRecord(
-    `${HISTORY_PATH}/${historyId}`
-  );
+  const history = await getRecord(`${HISTORY_PATH}/${historyId}`);
 
   if (!history || history.contentKey !== key) {
     throw new Error("نسخه موردنظر پیدا نشد.");
   }
 
   if (typeof history.previousValue !== "string") {
-    throw new Error("این نسخه محتوای قبلی قابل‌بازگردانی ندارد.");
+    throw new Error("محتوای قبلی برای بازگردانی موجود نیست.");
   }
 
-  return saveSiteContent(
-    key,
-    history.previousValue,
-    actor
-  );
+  return saveSiteContent(key, history.previousValue, actor);
 }
 
-// دریافت نسخه‌های قبلی یک محتوا
 export async function getSiteContentHistory(key, actor) {
   requireAdmin(actor);
-
   validateKey(key);
 
-  const { getAllRecords } = await import("./database.js");
   const records = await getAllRecords(HISTORY_PATH);
 
-  return records
-    .filter(item => item.contentKey === key)
+  return (Array.isArray(records) ? records : [])
+    .filter(item => item?.contentKey === key)
     .sort((a, b) => (b.changedAt || 0) - (a.changedAt || 0));
 }
 
-// حذف محتوای ثبت‌شده
 export async function deleteSiteContent(key, actor) {
   requireAdmin(actor);
-
   validateKey(key);
 
-  const previous = await getSiteContent(key);
+  const previous = await getRecord(`${CONTENT_PATH}/${key}`);
 
-  if (!previous) {
+  if (!previous || previous.deleted === true) {
     return false;
   }
 
   const now = Date.now();
+  const version = (previous.version || 0) + 1;
 
-  await updateRecord(`${CONTENT_PATH}/${key}`, {
-    value: "",
-    deleted: true,
-    updatedAt: now,
-    updatedBy: actor.uid,
-    version: (previous.version || 0) + 1
-  });
-
-  await createRecord(HISTORY_PATH, {
+  const history = {
     id: createId(),
     contentKey: key,
     previousValue: previous.value ?? "",
@@ -179,13 +161,23 @@ export async function deleteSiteContent(key, actor) {
     changedBy: actor.uid,
     changedAt: now,
     action: "delete",
-    version: (previous.version || 0) + 1
+    version
+  };
+
+  await updateRecord(`${CONTENT_PATH}/${key}`, {
+    ...previous,
+    value: "",
+    deleted: true,
+    updatedAt: now,
+    updatedBy: actor.uid,
+    version
   });
+
+  await createRecord(HISTORY_PATH, history);
 
   return true;
 }
 
-// فهرست شناسه‌های پیشنهادی برای بخش‌های سایت
 export const SITE_CONTENT_KEYS = Object.freeze([
   "home_title",
   "home_description",
@@ -206,3 +198,4 @@ export const SITE_CONTENT_KEYS = Object.freeze([
   "contact_text",
   "maintenance_message"
 ]);
+    
