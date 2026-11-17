@@ -4,11 +4,17 @@ import {
   readData
 } from "./database.js";
 
+import { getAdminUid } from "./auth.js";
+
 const PATH = "auditLogs";
 
 function requireUser(actor) {
-  if (!actor?.uid || typeof actor.uid !== "string") {
-    throw new Error("برای این عملیات باید وارد حساب شوید.");
+  if (
+    !actor?.uid ||
+    typeof actor.uid !== "string" ||
+    actor.active !== true
+  ) {
+    throw new Error("برای این عملیات باید وارد حساب فعال شوید.");
   }
 }
 
@@ -17,6 +23,13 @@ function requireStaff(actor) {
 
   if (!["admin", "leader"].includes(actor.role)) {
     throw new Error("فقط ادمین و لیدر اجازه مشاهده گزارش‌ها را دارند.");
+  }
+
+  if (
+    actor.role === "admin" &&
+    actor.uid !== getAdminUid()
+  ) {
+    throw new Error("دسترسی ادمین اصلی معتبر نیست.");
   }
 }
 
@@ -30,11 +43,38 @@ function cleanText(value, max = 300) {
 function safeLimit(value) {
   const number = Number(value);
 
-  if (!Number.isFinite(number)) return 100;
+  if (!Number.isFinite(number)) {
+    return 100;
+  }
 
-  return Math.max(1, Math.min(Math.floor(number), 500));
+  return Math.max(
+    1,
+    Math.min(Math.floor(number), 500)
+  );
 }
 
+function normalizeLogs(logs) {
+  if (!logs || typeof logs !== "object" || Array.isArray(logs)) {
+    return [];
+  }
+
+  return Object.entries(logs)
+    .filter(([, item]) =>
+      item &&
+      typeof item === "object" &&
+      !Array.isArray(item)
+    )
+    .map(([id, item]) => ({
+      ...item,
+      id
+    }))
+    .sort((a, b) =>
+      (Number(b.createdAt) || 0) -
+      (Number(a.createdAt) || 0)
+    );
+}
+
+// ثبت رویداد
 export async function recordAudit({
   actorUid,
   actorRole,
@@ -51,6 +91,13 @@ export async function recordAudit({
     throw new Error("مشخصات ثبت‌کننده معتبر نیست.");
   }
 
+  if (
+    actorRole === "admin" &&
+    actorUid !== getAdminUid()
+  ) {
+    throw new Error("شناسه ادمین اصلی معتبر نیست.");
+  }
+
   const safeAction = cleanText(action, 80);
 
   if (!safeAction) {
@@ -59,7 +106,10 @@ export async function recordAudit({
 
   if (
     targetUid !== null &&
-    (typeof targetUid !== "string" || !targetUid.trim())
+    (
+      typeof targetUid !== "string" ||
+      !targetUid.trim()
+    )
   ) {
     throw new Error("شناسه کاربر هدف معتبر نیست.");
   }
@@ -103,27 +153,19 @@ export async function recordAudit({
   });
 }
 
+// تاریخچه کل کلن - فقط ادمین اصلی و لیدر
 export async function getAuditHistory(actor, limit = 100) {
   requireStaff(actor);
 
   const logs = await readData(PATH);
 
-  if (!logs || typeof logs !== "object") {
-    return [];
-  }
-
-  return Object.entries(logs)
-    .filter(([, item]) => item && typeof item === "object")
-    .map(([id, item]) => ({
-      id,
-      ...item
-    }))
-    .sort((a, b) =>
-      (b.createdAt || 0) - (a.createdAt || 0)
-    )
-    .slice(0, safeLimit(limit));
+  return normalizeLogs(logs).slice(
+    0,
+    safeLimit(limit)
+  );
 }
 
+// تاریخچه شخصی - فقط صاحب حساب
 export async function getUserAuditHistory(
   uid,
   actor,
@@ -131,35 +173,23 @@ export async function getUserAuditHistory(
 ) {
   requireUser(actor);
 
-  if (typeof uid !== "string" || !uid.trim()) {
-    throw new Error("شناسه کاربر معتبر نیست.");
-  }
-
-  if (actor.role !== "admin" && actor.uid !== uid) {
-    throw new Error("فقط می‌توانید تاریخچه خودتان را مشاهده کنید.");
+  if (
+    typeof uid !== "string" ||
+    !uid.trim() ||
+    actor.uid !== uid
+  ) {
+    throw new Error(
+      "فقط می‌توانید تاریخچه حساب خودتان را مشاهده کنید."
+    );
   }
 
   const logs = await readData(PATH);
 
-  if (!logs || typeof logs !== "object") {
-    return [];
-  }
-
-  return Object.entries(logs)
-    .filter(([, item]) =>
-      item &&
-      typeof item === "object" &&
-      (
-        item.actorUid === uid ||
-        item.targetUid === uid
-      )
-    )
-    .map(([id, item]) => ({
-      id,
-      ...item
-    }))
-    .sort((a, b) =>
-      (b.createdAt || 0) - (a.createdAt || 0)
+  return normalizeLogs(logs)
+    .filter(item =>
+      item.actorUid === uid ||
+      item.targetUid === uid
     )
     .slice(0, safeLimit(limit));
     }
+    
