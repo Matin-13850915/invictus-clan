@@ -6,8 +6,6 @@ import {
   updateRecord
 } from "./database.js";
 
-import { createId } from "./utils.js";
-
 const REQUESTS_PATH = "warApplications";
 const WARS_PATH = "wars";
 
@@ -19,8 +17,12 @@ const VALID_STATUSES = [
 ];
 
 function requireUser(actor) {
-  if (!actor?.uid) {
-    throw new Error("ابتدا وارد حساب خود شوید.");
+  if (
+    !actor?.uid ||
+    actor.active !== true ||
+    !["admin", "leader", "tester", "member"].includes(actor.role)
+  ) {
+    throw new Error("ابتدا با حساب فعال وارد شوید.");
   }
 }
 
@@ -32,15 +34,29 @@ function requireStaff(actor) {
   }
 }
 
-function cleanText(value, max = 300) {
+function validateId(value, label = "شناسه") {
+  if (
+    typeof value !== "string" ||
+    !/^[A-Za-z0-9_-]{1,128}$/.test(value)
+  ) {
+    throw new Error(`${label} معتبر نیست.`);
+  }
+
+  return value;
+}
+
+function cleanText(value, max = 300, allowEmpty = false) {
   if (typeof value !== "string") {
-    throw new Error("اطلاعات واردشده معتبر نیست.");
+    throw new Error("متن واردشده معتبر نیست.");
   }
 
   const result = value.trim();
 
-  if (!result || result.length > max) {
-    throw new Error(`متن باید بین ۱ تا ${max} کاراکتر باشد.`);
+  if (
+    (!allowEmpty && !result) ||
+    result.length > max
+  ) {
+    throw new Error(`متن باید حداکثر ${max} کاراکتر باشد.`);
   }
 
   return result;
@@ -53,13 +69,33 @@ function validateStatus(status) {
 }
 
 async function getWar(warId) {
-  const war = await getRecord(`${WARS_PATH}/${warId}`);
+  const id = validateId(warId, "شناسه جنگ");
+  const war = await getRecord(`${WARS_PATH}/${id}`);
 
-  if (!war || war.archived) {
+  if (!war || war.archived === true) {
     throw new Error("جنگ موردنظر پیدا نشد یا بایگانی شده است.");
   }
 
-  return war;
+  return { ...war, id };
+}
+
+async function getRequest(requestId) {
+  const id = validateId(requestId, "شناسه درخواست");
+  const request = await getRecord(`${REQUESTS_PATH}/${id}`);
+
+  if (!request) {
+    throw new Error("درخواست موردنظر پیدا نشد.");
+  }
+
+  return { ...request, id };
+}
+
+async function getRequestsForWar(warId) {
+  const requests = await getAllRecords(REQUESTS_PATH);
+
+  return requests.filter(
+    request => request.warId === warId
+  );
 }
 
 // ثبت درخواست حضور در جنگ
@@ -70,41 +106,55 @@ export async function applyForWar(warId, note, actor) {
     throw new Error("فقط اعضای کلن می‌توانند درخواست حضور ثبت کنند.");
   }
 
-  const war = await getWar(warId);
+  const id = validateId(warId, "شناسه جنگ");
+  const war = await getWar(id);
 
-  if (war.registrationOpen === false) {
-    throw new Error("ثبت‌نام این جنگ بسته شده است.");
+  if (war.registrationOpen !== true) {
+    throw new Error("ثبت‌نام این جنگ باز نیست.");
   }
 
-  const requests = await getAllRecords(REQUESTS_PATH);
+  const cleanNote = cleanText(
+    note || "",
+    300,
+    true
+  );
+
+  const requests = await getRequestsForWar(id);
 
   const duplicate = requests.find(request =>
-    request.warId === warId &&
     request.memberUid === actor.uid &&
     ["pending", "selected"].includes(request.status)
   );
 
   if (duplicate) {
-    throw new Error("برای این جنگ قبلاً درخواست ثبت کرده‌اید.");
+    throw new Error("برای این جنگ قبلاً درخواست فعال ثبت کرده‌اید.");
   }
 
-  const request = {
-    id: createId(),
-    warId,
+  const now = Date.now();
+
+  const requestId = await createRecord(REQUESTS_PATH, {
+    warId: id,
     memberUid: actor.uid,
-    memberName: actor.displayName || actor.gameName || "عضو کلن",
-    note: typeof note === "string" ? note.trim().slice(0, 300) : "",
+    memberName: cleanText(
+      actor.displayName || actor.gameName || "عضو کلن",
+      60
+    ),
+    note: cleanNote,
     status: "pending",
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
+    createdAt: now,
+    updatedAt: now,
     reviewedBy: null,
     reviewedAt: null,
     reviewNote: ""
+  });
+
+  return {
+    id: requestId,
+    warId: id,
+    memberUid: actor.uid,
+    status: "pending",
+    createdAt: now
   };
-
-  await createRecord(REQUESTS_PATH, request);
-
-  return request;
 }
 
 // دریافت درخواست‌های شخصی عضو
@@ -115,21 +165,27 @@ export async function getMyWarApplications(actor) {
 
   return requests
     .filter(request => request.memberUid === actor.uid)
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    .sort(
+      (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
+    );
 }
 
 // دریافت درخواست‌های یک جنگ برای مدیریت
 export async function getWarApplications(warId, actor) {
   requireStaff(actor);
 
-  const requests = await getAllRecords(REQUESTS_PATH);
+  const id = validateId(warId, "شناسه جنگ");
 
-  return requests
-    .filter(request => request.warId === warId)
-    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  await getWar(id);
+
+  const requests = await getRequestsForWar(id);
+
+  return requests.sort(
+    (a, b) => (a.createdAt || 0) - (b.createdAt || 0)
+  );
 }
 
-// بررسی ظرفیت و انتخاب اعضا
+// بررسی و انتخاب درخواست
 export async function reviewWarApplication(
   requestId,
   status,
@@ -143,11 +199,7 @@ export async function reviewWarApplication(
     throw new Error("مدیریت نمی‌تواند وضعیت انصراف را ثبت کند.");
   }
 
-  const request = await getRecord(`${REQUESTS_PATH}/${requestId}`);
-
-  if (!request) {
-    throw new Error("درخواست پیدا نشد.");
-  }
+  const request = await getRequest(requestId);
 
   if (request.status !== "pending") {
     throw new Error("این درخواست قبلاً بررسی شده است.");
@@ -156,14 +208,20 @@ export async function reviewWarApplication(
   const war = await getWar(request.warId);
 
   if (status === "selected") {
+    if (war.registrationOpen !== true) {
+      throw new Error("ثبت‌نام این جنگ بسته شده است.");
+    }
+
     const capacity = Number(war.capacity);
 
-    if (Number.isInteger(capacity) && capacity > 0) {
-      const allRequests = await getAllRecords(REQUESTS_PATH);
+    if (
+      Number.isInteger(capacity) &&
+      capacity > 0
+    ) {
+      const requests = await getRequestsForWar(request.warId);
 
-      const selectedCount = allRequests.filter(item =>
-        item.warId === request.warId &&
-        item.status === "selected"
+      const selectedCount = requests.filter(
+        item => item.status === "selected"
       ).length;
 
       if (selectedCount >= capacity) {
@@ -172,12 +230,13 @@ export async function reviewWarApplication(
     }
   }
 
-  const cleanReviewNote =
-    typeof reviewNote === "string"
-      ? reviewNote.trim().slice(0, 500)
-      : "";
+  const cleanReviewNote = cleanText(
+    reviewNote || "",
+    500,
+    true
+  );
 
-  await updateRecord(`${REQUESTS_PATH}/${requestId}`, {
+  await updateRecord(`${REQUESTS_PATH}/${request.id}`, {
     status,
     reviewNote: cleanReviewNote,
     reviewedBy: actor.uid,
@@ -192,17 +251,17 @@ export async function reviewWarApplication(
 export async function withdrawWarApplication(requestId, actor) {
   requireUser(actor);
 
-  const request = await getRecord(`${REQUESTS_PATH}/${requestId}`);
+  const request = await getRequest(requestId);
 
-  if (!request || request.memberUid !== actor.uid) {
-    throw new Error("درخواست موردنظر متعلق به شما نیست.");
+  if (request.memberUid !== actor.uid) {
+    throw new Error("این درخواست متعلق به شما نیست.");
   }
 
   if (!["pending", "selected"].includes(request.status)) {
     throw new Error("این درخواست قابل انصراف نیست.");
   }
 
-  await updateRecord(`${REQUESTS_PATH}/${requestId}`, {
+  await updateRecord(`${REQUESTS_PATH}/${request.id}`, {
     status: "withdrawn",
     updatedAt: Date.now(),
     withdrawnAt: Date.now()
@@ -211,9 +270,11 @@ export async function withdrawWarApplication(requestId, actor) {
   return true;
 }
 
-// تغییر ظرفیت جنگ توسط مدیریت
+// تغییر ظرفیت جنگ
 export async function updateWarCapacity(warId, capacity, actor) {
   requireStaff(actor);
+
+  const id = validateId(warId, "شناسه جنگ");
 
   if (
     !Number.isInteger(capacity) ||
@@ -223,20 +284,20 @@ export async function updateWarCapacity(warId, capacity, actor) {
     throw new Error("ظرفیت باید عددی بین ۱ تا ۱۰۰ باشد.");
   }
 
-  const war = await getWar(warId);
+  const war = await getWar(id);
+  const requests = await getRequestsForWar(id);
 
-  const requests = await getAllRecords(REQUESTS_PATH);
-
-  const selectedCount = requests.filter(request =>
-    request.warId === warId &&
-    request.status === "selected"
+  const selectedCount = requests.filter(
+    request => request.status === "selected"
   ).length;
 
   if (capacity < selectedCount) {
-    throw new Error("ظرفیت جدید از تعداد اعضای انتخاب‌شده کمتر است.");
+    throw new Error(
+      "ظرفیت جدید از تعداد اعضای انتخاب‌شده کمتر است."
+    );
   }
 
-  await updateRecord(`${WARS_PATH}/${warId}`, {
+  await updateRecord(`${WARS_PATH}/${id}`, {
     capacity,
     updatedAt: Date.now(),
     updatedBy: actor.uid
@@ -249,17 +310,23 @@ export async function updateWarCapacity(warId, capacity, actor) {
 export async function setWarRegistration(warId, isOpen, actor) {
   requireStaff(actor);
 
+  const id = validateId(warId, "شناسه جنگ");
+
   if (typeof isOpen !== "boolean") {
     throw new Error("وضعیت ثبت‌نام معتبر نیست.");
   }
 
-  await getWar(warId);
+  const war = await getWar(id);
 
-  await updateRecord(`${WARS_PATH}/${warId}`, {
+  if (isOpen && war.status === "completed") {
+    throw new Error("جنگ پایان‌یافته قابل ثبت‌نام مجدد نیست.");
+  }
+
+  await updateRecord(`${WARS_PATH}/${id}`, {
     registrationOpen: isOpen,
     registrationUpdatedAt: Date.now(),
     registrationUpdatedBy: actor.uid
   });
 
   return true;
-}
+    }
