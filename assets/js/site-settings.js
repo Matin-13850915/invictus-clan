@@ -6,7 +6,7 @@ import {
   updateRecord
 } from "./database.js";
 
-import { createId } from "./utils.js";
+import { canEditSiteContent } from "./permissions.js";
 
 const SETTINGS_PATH = "siteSettings";
 const HISTORY_PATH = "siteSettingsHistory";
@@ -60,13 +60,18 @@ const NUMBER_SETTINGS = Object.freeze({
 });
 
 function requireAdmin(actor) {
-  if (!actor?.uid || actor.role !== "admin") {
+  if (!canEditSiteContent(actor)) {
     throw new Error("فقط ادمین اجازه تغییر تنظیمات سایت را دارد.");
   }
 }
 
 function validateSetting(key, value) {
-  if (!Object.prototype.hasOwnProperty.call(DEFAULT_SETTINGS, key)) {
+  if (
+    !Object.prototype.hasOwnProperty.call(
+      DEFAULT_SETTINGS,
+      key
+    )
+  ) {
     throw new Error("این تنظیم قابل ویرایش نیست.");
   }
 
@@ -74,6 +79,7 @@ function validateSetting(key, value) {
     if (typeof value !== "boolean") {
       throw new Error(`مقدار تنظیم ${key} باید روشن یا خاموش باشد.`);
     }
+
     return value;
   }
 
@@ -81,7 +87,7 @@ function validateSetting(key, value) {
     const { min, max } = NUMBER_SETTINGS[key];
 
     if (
-      !Number.isInteger(value) ||
+      !Number.isSafeInteger(value) ||
       value < min ||
       value > max
     ) {
@@ -92,7 +98,10 @@ function validateSetting(key, value) {
   }
 
   if (key === "maintenanceMessage") {
-    if (typeof value !== "string" || value.trim().length > 1000) {
+    if (
+      typeof value !== "string" ||
+      value.trim().length > 1000
+    ) {
       throw new Error("متن پیام تعمیرات معتبر نیست.");
     }
 
@@ -105,21 +114,42 @@ function validateSetting(key, value) {
 function cleanSavedSettings(saved) {
   const result = { ...DEFAULT_SETTINGS };
 
-  if (!saved || typeof saved !== "object" || Array.isArray(saved)) {
+  if (
+    !saved ||
+    typeof saved !== "object" ||
+    Array.isArray(saved)
+  ) {
     return result;
   }
 
   for (const key of Object.keys(DEFAULT_SETTINGS)) {
+    if (saved[key] === undefined) continue;
+
     try {
-      if (saved[key] !== undefined) {
-        result[key] = validateSetting(key, saved[key]);
-      }
+      result[key] = validateSetting(key, saved[key]);
     } catch {
-      // مقدار خراب یا قدیمی نادیده گرفته می‌شود.
+      // مقدار نامعتبر یا قدیمی با مقدار پیش‌فرض جایگزین می‌شود.
     }
   }
 
   return result;
+}
+
+async function writeHistory({
+  key,
+  previousValue,
+  newValue,
+  actor,
+  now
+}) {
+  return createRecord(HISTORY_PATH, {
+    key,
+    previousValue,
+    newValue,
+    changedBy: actor.uid,
+    changedAt: now,
+    action: "update"
+  });
 }
 
 export async function getSiteSettings() {
@@ -128,7 +158,12 @@ export async function getSiteSettings() {
 }
 
 export async function getSiteSetting(key) {
-  if (!Object.prototype.hasOwnProperty.call(DEFAULT_SETTINGS, key)) {
+  if (
+    !Object.prototype.hasOwnProperty.call(
+      DEFAULT_SETTINGS,
+      key
+    )
+  ) {
     throw new Error("تنظیم موردنظر وجود ندارد.");
   }
 
@@ -149,15 +184,19 @@ export async function updateSiteSetting(key, value, actor) {
     updatedBy: actor.uid
   });
 
-  await createRecord(HISTORY_PATH, {
-    id: createId(),
-    key,
-    previousValue: previous,
-    newValue: validatedValue,
-    changedBy: actor.uid,
-    changedAt: now,
-    action: "update"
-  });
+  try {
+    await writeHistory({
+      key,
+      previousValue: previous,
+      newValue: validatedValue,
+      actor,
+      now
+    });
+  } catch {
+    throw new Error(
+      "تنظیم ذخیره شد، اما ثبت تاریخچه ناموفق بود."
+    );
+  }
 
   return validatedValue;
 }
@@ -175,8 +214,8 @@ export async function updateMultipleSiteSettings(changes, actor) {
 
   const entries = Object.entries(changes);
 
-  if (!entries.length) {
-    throw new Error("هیچ تنظیمی برای تغییر ارسال نشده است.");
+  if (!entries.length || entries.length > 30) {
+    throw new Error("تعداد تنظیمات ارسالی معتبر نیست.");
   }
 
   const validated = {};
@@ -194,16 +233,26 @@ export async function updateMultipleSiteSettings(changes, actor) {
     updatedBy: actor.uid
   });
 
-  for (const [key, value] of Object.entries(validated)) {
-    await createRecord(HISTORY_PATH, {
-      id: createId(),
-      key,
-      previousValue: previous[key],
-      newValue: value,
-      changedBy: actor.uid,
-      changedAt: now,
-      action: "update"
-    });
+  const historyResults = await Promise.allSettled(
+    Object.entries(validated).map(([key, value]) =>
+      writeHistory({
+        key,
+        previousValue: previous[key],
+        newValue: value,
+        actor,
+        now
+      })
+    )
+  );
+
+  const failedCount = historyResults.filter(
+    result => result.status === "rejected"
+  ).length;
+
+  if (failedCount > 0) {
+    throw new Error(
+      `${failedCount} مورد از تاریخچه تنظیمات ثبت نشد؛ تنظیمات اصلی ذخیره شده‌اند.`
+    );
   }
 
   return {
@@ -218,7 +267,19 @@ export async function getSiteSettingsHistory(actor) {
   const history = await getAllRecords(HISTORY_PATH);
 
   return (Array.isArray(history) ? history : [])
-    .sort((a, b) => (b.changedAt || 0) - (a.changedAt || 0));
+    .filter(item =>
+      item &&
+      typeof item.key === "string" &&
+      Object.prototype.hasOwnProperty.call(
+        DEFAULT_SETTINGS,
+        item.key
+      )
+    )
+    .sort(
+      (a, b) =>
+        Number(b.changedAt || 0) -
+        Number(a.changedAt || 0)
+    );
 }
 
 export async function restoreSiteSetting(historyId, actor) {
@@ -231,9 +292,18 @@ export async function restoreSiteSetting(historyId, actor) {
     throw new Error("شناسه تاریخچه معتبر نیست.");
   }
 
-  const history = await getRecord(`${HISTORY_PATH}/${historyId}`);
+  const history = await getRecord(
+    `${HISTORY_PATH}/${historyId}`
+  );
 
-  if (!history || typeof history.key !== "string") {
+  if (
+    !history ||
+    typeof history.key !== "string" ||
+    !Object.prototype.hasOwnProperty.call(
+      DEFAULT_SETTINGS,
+      history.key
+    )
+  ) {
     throw new Error("نسخه موردنظر پیدا نشد.");
   }
 
@@ -242,5 +312,4 @@ export async function restoreSiteSetting(historyId, actor) {
     history.previousValue,
     actor
   );
-        }
-  
+    }
