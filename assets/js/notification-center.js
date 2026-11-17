@@ -6,7 +6,7 @@ import {
   updateRecord
 } from "./database.js";
 
-import { createId } from "./utils.js";
+import { normalizeText } from "./utils.js";
 
 const NOTIFICATIONS_PATH = "notifications";
 
@@ -23,8 +23,37 @@ const VALID_TYPES = [
 ];
 
 function requireUser(actor) {
-  if (!actor?.uid) {
-    throw new Error("ابتدا وارد حساب خود شوید.");
+  if (!actor?.uid || actor.active !== true) {
+    throw new Error("برای استفاده از اعلان‌ها باید عضو فعال باشید.");
+  }
+}
+
+function requireStaff(actor) {
+  requireUser(actor);
+
+  if (!["admin", "leader"].includes(actor.role)) {
+    throw new Error("فقط لیدر و ادمین اجازه ارسال اعلان مستقیم دارند.");
+  }
+}
+
+function validateUid(uid) {
+  if (
+    typeof uid !== "string" ||
+    !uid.trim() ||
+    uid.length > 128 ||
+    /[.#$/\[\]]/.test(uid)
+  ) {
+    throw new Error("شناسه دریافت‌کننده معتبر نیست.");
+  }
+}
+
+function validateId(id) {
+  if (
+    typeof id !== "string" ||
+    !id.trim() ||
+    /[.#$/\[\]]/.test(id)
+  ) {
+    throw new Error("شناسه اعلان معتبر نیست.");
   }
 }
 
@@ -33,7 +62,7 @@ function cleanText(value, maxLength) {
     throw new Error("متن اعلان معتبر نیست.");
   }
 
-  const text = value.trim();
+  const text = normalizeText(value).trim();
 
   if (!text || text.length > maxLength) {
     throw new Error(`متن باید بین ۱ تا ${maxLength} کاراکتر باشد.`);
@@ -42,39 +71,79 @@ function cleanText(value, maxLength) {
   return text;
 }
 
-// ایجاد اعلان برای یک عضو
+function validateLink(value) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
+
+  if (typeof value !== "string" || value.length > 300) {
+    throw new Error("لینک اعلان معتبر نیست.");
+  }
+
+  const link = value.trim();
+
+  // فقط مسیر داخلی سایت یا لینک HTTPS مجاز است.
+  if (
+    !link.startsWith("/") &&
+    !/^https:\/\/[^\s]+$/i.test(link)
+  ) {
+    throw new Error("لینک باید مسیر داخلی یا آدرس HTTPS باشد.");
+  }
+
+  if (link.startsWith("//")) {
+    throw new Error("لینک نامعتبر است.");
+  }
+
+  return link;
+}
+
+function safeArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function sortNewest(items) {
+  return [...items].sort(
+    (a, b) => (Number(b.createdAt) || 0) -
+      (Number(a.createdAt) || 0)
+  );
+}
+
+// ارسال اعلان مستقیم توسط مدیریت
 export async function createUserNotification(data, actor) {
-  requireUser(actor);
+  requireStaff(actor);
 
-  if (!["admin", "leader"].includes(actor.role)) {
-    throw new Error("فقط مدیریت اجازه ارسال اعلان مستقیم دارد.");
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("اطلاعات اعلان معتبر نیست.");
   }
 
-  if (typeof data.uid !== "string" || !data.uid.trim()) {
-    throw new Error("شناسه دریافت‌کننده معتبر نیست.");
-  }
+  validateUid(data.uid);
 
   if (!VALID_TYPES.includes(data.type)) {
     throw new Error("نوع اعلان معتبر نیست.");
   }
 
   const notification = {
-    id: createId(),
     uid: data.uid,
     type: data.type,
     title: cleanText(data.title, 100),
     message: cleanText(data.message, 1000),
-    link: typeof data.link === "string"
-      ? data.link.slice(0, 300)
-      : null,
+    link: validateLink(data.link),
     read: false,
+    deleted: false,
+    archived: false,
     createdAt: Date.now(),
     createdBy: actor.uid
   };
 
-  await createRecord(NOTIFICATIONS_PATH, notification);
+  const id = await createRecord(
+    NOTIFICATIONS_PATH,
+    notification
+  );
 
-  return notification;
+  return {
+    id,
+    ...notification
+  };
 }
 
 // دریافت اعلان‌های خود کاربر
@@ -82,43 +151,53 @@ export async function getMyNotifications(actor, limit = 50) {
   requireUser(actor);
 
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
-    throw new Error("تعداد اعلان‌ها معتبر نیست.");
+    throw new Error("تعداد اعلان‌ها باید بین ۱ تا ۱۰۰ باشد.");
   }
 
-  const all = await getAllRecords(NOTIFICATIONS_PATH);
+  const all = safeArray(
+    await getAllRecords(NOTIFICATIONS_PATH)
+  );
 
-  return all
-    .filter(item => item.uid === actor.uid)
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-    .slice(0, limit);
+  return sortNewest(
+    all.filter(item =>
+      item &&
+      item.uid === actor.uid &&
+      item.deleted !== true &&
+      item.archived !== true
+    )
+  ).slice(0, limit);
 }
 
 // تعداد اعلان‌های خوانده‌نشده
 export async function getUnreadNotificationCount(actor) {
-  requireUser(actor);
-
   const notifications = await getMyNotifications(actor, 100);
 
-  return notifications.filter(item => !item.read).length;
+  return notifications.filter(
+    item => item.read !== true
+  ).length;
 }
 
-// علامت‌گذاری یک اعلان به‌عنوان خوانده‌شده
+// خوانده‌شده کردن یک اعلان
 export async function markNotificationAsRead(id, actor) {
   requireUser(actor);
+  validateId(id);
 
-  const notification = await getRecord(
-    `${NOTIFICATIONS_PATH}/${id}`
-  );
+  const path = `${NOTIFICATIONS_PATH}/${id}`;
+  const notification = await getRecord(path);
 
-  if (!notification || notification.uid !== actor.uid) {
+  if (
+    !notification ||
+    notification.uid !== actor.uid ||
+    notification.deleted === true
+  ) {
     throw new Error("اعلان موردنظر پیدا نشد.");
   }
 
-  if (notification.read) {
+  if (notification.read === true) {
     return true;
   }
 
-  await updateRecord(`${NOTIFICATIONS_PATH}/${id}`, {
+  await updateRecord(path, {
     read: true,
     readAt: Date.now()
   });
@@ -126,13 +205,12 @@ export async function markNotificationAsRead(id, actor) {
   return true;
 }
 
-// خوانده‌شده کردن همه اعلان‌های کاربر
+// خوانده‌شده کردن همه اعلان‌های خوانده‌نشده
 export async function markAllNotificationsAsRead(actor) {
   requireUser(actor);
 
   const notifications = await getMyNotifications(actor, 100);
-
-  const unread = notifications.filter(item => !item.read);
+  const unread = notifications.filter(item => item.read !== true);
 
   for (const notification of unread) {
     await updateRecord(
@@ -147,31 +225,33 @@ export async function markAllNotificationsAsRead(actor) {
   return unread.length;
 }
 
-// حذف یک اعلان توسط صاحب آن
+// حذف ظاهری اعلان توسط صاحب آن
 export async function deleteMyNotification(id, actor) {
   requireUser(actor);
+  validateId(id);
 
-  const notification = await getRecord(
-    `${NOTIFICATIONS_PATH}/${id}`
-  );
+  const path = `${NOTIFICATIONS_PATH}/${id}`;
+  const notification = await getRecord(path);
 
-  if (!notification || notification.uid !== actor.uid) {
+  if (
+    !notification ||
+    notification.uid !== actor.uid ||
+    notification.deleted === true
+  ) {
     throw new Error("اعلان موردنظر پیدا نشد.");
   }
 
-  await updateRecord(`${NOTIFICATIONS_PATH}/${id}`, {
+  await updateRecord(path, {
     deleted: true,
-    deletedAt: Date.now()
+    deletedAt: Date.now(),
+    deletedBy: actor.uid
   });
 
   return true;
 }
 
-// حذف اعلان‌های قدیمی کاربر از نمایش
-export async function archiveOldNotifications(
-  days,
-  actor
-) {
+// بایگانی اعلان‌های قدیمی
+export async function archiveOldNotifications(days, actor) {
   requireUser(actor);
 
   if (
@@ -179,15 +259,16 @@ export async function archiveOldNotifications(
     days < 1 ||
     days > 365
   ) {
-    throw new Error("بازه زمانی معتبر نیست.");
+    throw new Error("بازه زمانی باید بین ۱ تا ۳۶۵ روز باشد.");
   }
 
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
   const notifications = await getMyNotifications(actor, 100);
 
   const oldItems = notifications.filter(item =>
-    !item.archived &&
-    item.createdAt < cutoff
+    item.archived !== true &&
+    Number(item.createdAt) > 0 &&
+    Number(item.createdAt) < cutoff
   );
 
   for (const item of oldItems) {
@@ -203,13 +284,8 @@ export async function archiveOldNotifications(
   return oldItems.length;
 }
 
-// دریافت اعلان‌های بایگانی‌نشده
+// دریافت اعلان‌های قابل نمایش
 export async function getVisibleNotifications(actor) {
-  requireUser(actor);
-
-  const notifications = await getMyNotifications(actor, 100);
-
-  return notifications.filter(item =>
-    !item.deleted && !item.archived
-  );
-}
+  return getMyNotifications(actor, 100);
+       }
+                                                 
