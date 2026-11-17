@@ -11,12 +11,31 @@ export const TESTER_SPECIALTIES = Object.freeze({
   BR: "BR"
 });
 
+const ALL_ROLES = Object.freeze([
+  ROLES.ADMIN,
+  ROLES.LEADER,
+  ROLES.TESTER,
+  ROLES.MEMBER
+]);
+
 function validUser(user) {
-  return Boolean(user && typeof user.uid === "string" && user.uid);
+  return Boolean(
+    user &&
+    typeof user.uid === "string" &&
+    user.uid.trim() &&
+    ALL_ROLES.includes(user.role)
+  );
+}
+
+function isActiveUser(user) {
+  return validUser(user) &&
+    user.active === true &&
+    user.status !== "banned" &&
+    user.status !== "suspended";
 }
 
 export function hasRole(user, role) {
-  return validUser(user) && user.role === role;
+  return isActiveUser(user) && user.role === role;
 }
 
 export function isAdmin(user) {
@@ -52,32 +71,40 @@ export function hasTesterSpecialty(user, specialty) {
 }
 
 export function canAccessPage(user, page) {
-  if (!validUser(user) || !user.active) return false;
+  if (!isActiveUser(user)) return false;
 
   const access = {
-    home: ["admin", "leader", "tester", "member"],
+    home: ALL_ROLES,
     applications: ["admin", "leader", "tester"],
-    members: ["admin", "leader", "tester", "member"],
-    announcements: ["admin", "leader", "tester", "member"],
-    wars: ["admin", "leader", "tester", "member"],
-    rankings: ["admin", "leader", "tester", "member"],
-    chat: ["admin", "leader", "tester", "member"],
-    forum: ["admin", "leader", "tester", "member"],
-    messages: ["admin", "leader", "member"],
-    teams: ["admin", "leader", "tester", "member"],
-    tournaments: ["admin", "leader", "tester", "member"],
-    seasons: ["admin", "leader", "tester", "member"],
-    rewards: ["admin", "leader", "member"],
-    tickets: ["admin", "leader", "tester", "member"],
+    members: ALL_ROLES,
+    announcements: ALL_ROLES,
+    wars: ALL_ROLES,
+    rankings: ALL_ROLES,
+    chat: ALL_ROLES,
+    forum: ALL_ROLES,
+    messages: ALL_ROLES,
+    teams: ALL_ROLES,
+    tournaments: ALL_ROLES,
+    seasons: ALL_ROLES,
+    rewards: ALL_ROLES,
+    tickets: ALL_ROLES,
     archive: ["admin", "leader"],
     statistics: ["admin", "leader"],
-    staff: ["admin", "leader", "tester", "member"],
-    rules: ["admin", "leader", "tester", "member"],
-    settings: ["admin", "leader", "tester", "member"],
+    staff: ALL_ROLES,
+    rules: ALL_ROLES,
+    settings: ALL_ROLES,
+    profile: ALL_ROLES,
+    notifications: ALL_ROLES,
+    support: ALL_ROLES,
     admin: ["admin"]
   };
 
-  return Boolean(access[page]?.includes(user.role));
+  const allowedRoles = access[page];
+
+  return Boolean(
+    allowedRoles &&
+    allowedRoles.includes(user.role)
+  );
 }
 
 export function canManageWebsite(user) {
@@ -93,14 +120,15 @@ export function canManageApplications(user) {
 }
 
 export function canReviewAssignedApplication(user, application) {
-  if (!user || !application) return false;
+  if (!isActiveUser(user) || !application) return false;
 
   if (isLeaderOrAdmin(user)) return true;
 
   return (
     isTester(user) &&
     application.assignedTesterUid === user.uid &&
-    application.assignedSpecialty === user.specialty
+    application.assignedSpecialty === user.specialty &&
+    hasTesterSpecialty(user, user.specialty)
   );
 }
 
@@ -157,13 +185,21 @@ export function canViewAssignedTests(user, application) {
 }
 
 export function canManageOwnProfile(user, targetUid) {
-  return validUser(user) && user.uid === targetUid;
+  return (
+    isActiveUser(user) &&
+    typeof targetUid === "string" &&
+    user.uid === targetUid
+  );
 }
 
 export function canViewPrivateHistory(user, targetUid) {
-  return Boolean(
-    validUser(user) &&
-    (user.uid === targetUid || isLeaderOrAdmin(user))
+  return (
+    isActiveUser(user) &&
+    typeof targetUid === "string" &&
+    (
+      user.uid === targetUid ||
+      isLeaderOrAdmin(user)
+    )
   );
 }
 
@@ -176,7 +212,7 @@ export function canApproveWarApplications(user) {
 }
 
 export function canManageSupportTickets(user, ticket) {
-  if (!validUser(user) || !ticket) return false;
+  if (!isActiveUser(user) || !ticket) return false;
 
   if (isLeaderOrAdmin(user)) return true;
 
@@ -193,4 +229,54 @@ export function canManageAccountRoles(user) {
 
 export function canManageSiteSettings(user) {
   return isAdmin(user);
-    }
+}
+
+export function canCreateChatRoom(user) {
+  return isLeaderOrAdmin(user);
+}
+
+export function canDeleteAnyChatMessage(user) {
+  return isLeaderOrAdmin(user);
+}
+
+export function canEditOwnChatMessage(user, message) {
+  if (!isActiveUser(user) || !message) return false;
+
+  if (message.uid !== user.uid) return false;
+
+  const createdAt = Number(message.createdAt);
+
+  if (!Number.isFinite(createdAt) || createdAt <= 0) {
+    return false;
+  }
+
+  return Date.now() - createdAt <= 15 * 60 * 1000;
+}
+
+export function canDeleteOwnChatMessage(user, message) {
+  return (
+    isActiveUser(user) &&
+    Boolean(message) &&
+    message.uid === user.uid
+  );
+}
+
+export function canViewMemberHistory(user, targetUid) {
+  return canViewPrivateHistory(user, targetUid);
+}
+
+export function canManageBadges(user) {
+  return isLeaderOrAdmin(user);
+}
+
+export function canManagePointsBalance(user) {
+  return isLeaderOrAdmin(user);
+}
+
+export function canViewOwnData(user, targetUid) {
+  return (
+    isActiveUser(user) &&
+    user.uid === targetUid
+  );
+      }
+      
