@@ -6,15 +6,17 @@ export const ROLES = Object.freeze({
   MEMBER: "member"
 });
 
-const ROLE_LEVEL = Object.freeze({
-  member: 1,
-  tester: 2,
-  leader: 3,
-  admin: 4
+export const TESTER_SPECIALTIES = Object.freeze({
+  MP: "MP",
+  BR: "BR"
 });
 
+function validUser(user) {
+  return Boolean(user && typeof user.uid === "string" && user.uid);
+}
+
 export function hasRole(user, role) {
-  return Boolean(user && user.role === role);
+  return validUser(user) && user.role === role;
 }
 
 export function isAdmin(user) {
@@ -34,21 +36,48 @@ export function isMember(user) {
 }
 
 export function isStaff(user) {
-  return Boolean(
-    user && (
-      user.role === ROLES.ADMIN ||
-      user.role === ROLES.LEADER ||
-      user.role === ROLES.TESTER
-    )
+  return isAdmin(user) || isLeader(user) || isTester(user);
+}
+
+export function isLeaderOrAdmin(user) {
+  return isAdmin(user) || isLeader(user);
+}
+
+export function hasTesterSpecialty(user, specialty) {
+  return (
+    isTester(user) &&
+    Object.values(TESTER_SPECIALTIES).includes(specialty) &&
+    user.specialty === specialty
   );
 }
 
-export function hasMinimumRole(user, requiredRole) {
-  if (!user || !ROLE_LEVEL[user.role] || !ROLE_LEVEL[requiredRole]) {
-    return false;
-  }
+export function canAccessPage(user, page) {
+  if (!validUser(user) || !user.active) return false;
 
-  return ROLE_LEVEL[user.role] >= ROLE_LEVEL[requiredRole];
+  const access = {
+    home: ["admin", "leader", "tester", "member"],
+    applications: ["admin", "leader", "tester"],
+    members: ["admin", "leader", "tester", "member"],
+    announcements: ["admin", "leader", "tester", "member"],
+    wars: ["admin", "leader", "tester", "member"],
+    rankings: ["admin", "leader", "tester", "member"],
+    chat: ["admin", "leader", "tester", "member"],
+    forum: ["admin", "leader", "tester", "member"],
+    messages: ["admin", "leader", "member"],
+    teams: ["admin", "leader", "tester", "member"],
+    tournaments: ["admin", "leader", "tester", "member"],
+    seasons: ["admin", "leader", "tester", "member"],
+    rewards: ["admin", "leader", "member"],
+    tickets: ["admin", "leader", "tester", "member"],
+    archive: ["admin", "leader"],
+    statistics: ["admin", "leader"],
+    staff: ["admin", "leader", "tester", "member"],
+    rules: ["admin", "leader", "tester", "member"],
+    settings: ["admin", "leader", "tester", "member"],
+    admin: ["admin"]
+  };
+
+  return Boolean(access[page]?.includes(user.role));
 }
 
 export function canManageWebsite(user) {
@@ -56,43 +85,55 @@ export function canManageWebsite(user) {
 }
 
 export function canManageMembers(user) {
-  return isAdmin(user) || isLeader(user);
+  return isLeaderOrAdmin(user);
 }
 
 export function canManageApplications(user) {
-  return isAdmin(user) || isLeader(user);
+  return isLeaderOrAdmin(user);
+}
+
+export function canReviewAssignedApplication(user, application) {
+  if (!user || !application) return false;
+
+  if (isLeaderOrAdmin(user)) return true;
+
+  return (
+    isTester(user) &&
+    application.assignedTesterUid === user.uid &&
+    application.assignedSpecialty === user.specialty
+  );
 }
 
 export function canPublishAnnouncements(user) {
-  return isAdmin(user) || isLeader(user);
+  return isLeaderOrAdmin(user);
 }
 
 export function canManageWars(user) {
-  return isAdmin(user) || isLeader(user);
+  return isLeaderOrAdmin(user);
 }
 
 export function canManageTeams(user) {
-  return isAdmin(user) || isLeader(user);
+  return isLeaderOrAdmin(user);
 }
 
 export function canManageTournaments(user) {
-  return isAdmin(user) || isLeader(user);
+  return isLeaderOrAdmin(user);
 }
 
 export function canManageSeasons(user) {
-  return isAdmin(user) || isLeader(user);
+  return isLeaderOrAdmin(user);
 }
 
 export function canManageRewards(user) {
-  return isAdmin(user) || isLeader(user);
+  return isLeaderOrAdmin(user);
 }
 
 export function canModerateChat(user) {
-  return isAdmin(user) || isLeader(user);
+  return isLeaderOrAdmin(user);
 }
 
 export function canViewStaffChat(user) {
-  return isAdmin(user) || isLeader(user);
+  return isLeaderOrAdmin(user);
 }
 
 export function canEditSiteContent(user) {
@@ -107,40 +148,37 @@ export function canDeleteAccounts(user) {
   return isAdmin(user);
 }
 
-export function canSubmitTestResult(user) {
-  return isTester(user) || isLeader(user) || isAdmin(user);
+export function canSubmitTestResult(user, application) {
+  return canReviewAssignedApplication(user, application);
 }
 
-export function canViewAssignedTests(user) {
-  return isTester(user) || isLeader(user) || isAdmin(user);
+export function canViewAssignedTests(user, application) {
+  return canReviewAssignedApplication(user, application);
 }
 
 export function canManageOwnProfile(user, targetUid) {
-  return Boolean(user && user.uid === targetUid);
+  return validUser(user) && user.uid === targetUid;
 }
 
 export function canViewPrivateHistory(user, targetUid) {
   return Boolean(
-    user && (
-      user.uid === targetUid ||
-      isLeader(user) ||
-      isAdmin(user)
-    )
+    validUser(user) &&
+    (user.uid === targetUid || isLeaderOrAdmin(user))
   );
 }
 
 export function canManagePoints(user) {
-  return isAdmin(user) || isLeader(user);
+  return isLeaderOrAdmin(user);
 }
 
 export function canApproveWarApplications(user) {
-  return isAdmin(user) || isLeader(user);
+  return isLeaderOrAdmin(user);
 }
 
 export function canManageSupportTickets(user, ticket) {
-  if (!user || !ticket) return false;
+  if (!validUser(user) || !ticket) return false;
 
-  if (isAdmin(user) || isLeader(user)) return true;
+  if (isLeaderOrAdmin(user)) return true;
 
   if (isTester(user)) {
     return ticket.assignedTesterUid === user.uid;
@@ -148,3 +186,11 @@ export function canManageSupportTickets(user, ticket) {
 
   return ticket.ownerUid === user.uid;
 }
+
+export function canManageAccountRoles(user) {
+  return isAdmin(user);
+}
+
+export function canManageSiteSettings(user) {
+  return isAdmin(user);
+    }
