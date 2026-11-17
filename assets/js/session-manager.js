@@ -11,9 +11,9 @@ function requireUser(actor) {
   if (
     !actor ||
     typeof actor.uid !== "string" ||
-    !actor.uid.trim()
+    !/^[a-zA-Z0-9_-]{1,128}$/.test(actor.uid)
   ) {
-    throw new Error("ابتدا وارد حساب خود شوید.");
+    throw new Error("ابتدا وارد حساب معتبر خود شوید.");
   }
 }
 
@@ -26,9 +26,12 @@ function createSessionId() {
 }
 
 function safeMetadata(value, fallback) {
-  return typeof value === "string"
-    ? value.trim().slice(0, 120)
-    : fallback;
+  if (typeof value !== "string") return fallback;
+
+  return value
+    .replace(/[\u0000-\u001F\u007F]/g, "")
+    .trim()
+    .slice(0, 120) || fallback;
 }
 
 function sessionPath(uid, recordId) {
@@ -54,14 +57,8 @@ export async function registerSession(actor, metadata = {}) {
     createdAt: now,
     lastActivityAt: now,
     status: "active",
-    device: safeMetadata(
-      metadata.device,
-      "دستگاه ناشناس"
-    ),
-    browser: safeMetadata(
-      metadata.browser,
-      "مرورگر ناشناس"
-    )
+    device: safeMetadata(metadata.device, "دستگاه ناشناس"),
+    browser: safeMetadata(metadata.browser, "مرورگر ناشناس")
   };
 
   const recordId = await createRecord(
@@ -83,7 +80,11 @@ export async function getMySessions(actor) {
   );
 
   return sessions
-    .filter(session => session.uid === actor.uid)
+    .filter(session =>
+      session &&
+      session.uid === actor.uid &&
+      typeof session.sessionId === "string"
+    )
     .sort(
       (a, b) =>
         Number(b.createdAt || 0) -
@@ -92,9 +93,12 @@ export async function getMySessions(actor) {
 }
 
 async function findMySession(actor, sessionId) {
+  requireUser(actor);
+
   if (
     typeof sessionId !== "string" ||
-    !sessionId.trim()
+    !sessionId.trim() ||
+    sessionId.length > 128
   ) {
     throw new Error("شناسه نشست معتبر نیست.");
   }
@@ -112,16 +116,8 @@ async function findMySession(actor, sessionId) {
   return session;
 }
 
-export async function updateSessionActivity(
-  sessionId,
-  actor
-) {
-  requireUser(actor);
-
-  const session = await findMySession(
-    actor,
-    sessionId
-  );
+export async function updateSessionActivity(sessionId, actor) {
+  const session = await findMySession(actor, sessionId);
 
   if (session.status !== "active") {
     throw new Error("این نشست فعال نیست.");
@@ -137,16 +133,8 @@ export async function updateSessionActivity(
   return true;
 }
 
-export async function closeSession(
-  sessionId,
-  actor
-) {
-  requireUser(actor);
-
-  const session = await findMySession(
-    actor,
-    sessionId
-  );
+export async function closeSession(sessionId, actor) {
+  const session = await findMySession(actor, sessionId);
 
   if (session.status !== "active") {
     return false;
@@ -167,8 +155,6 @@ export async function closeSession(
 }
 
 export async function closeAllSessions(actor) {
-  requireUser(actor);
-
   const sessions = await getMySessions(actor);
 
   const activeSessions = sessions.filter(
@@ -177,7 +163,7 @@ export async function closeAllSessions(actor) {
 
   const now = Date.now();
 
-  await Promise.all(
+  const results = await Promise.allSettled(
     activeSessions.map(session =>
       updateRecord(
         sessionPath(actor.uid, session.id),
@@ -190,6 +176,16 @@ export async function closeAllSessions(actor) {
     )
   );
 
+  const failed = results.filter(
+    result => result.status === "rejected"
+  );
+
+  if (failed.length > 0) {
+    throw new Error(
+      `بستن ${failed.length} نشست ناموفق بود. دوباره تلاش کنید.`
+    );
+  }
+
   return activeSessions.length;
 }
 
@@ -199,4 +195,4 @@ export async function getActiveSessions(actor) {
   return sessions.filter(
     session => session.status === "active"
   );
-}
+      }
