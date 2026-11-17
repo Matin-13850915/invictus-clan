@@ -11,27 +11,43 @@ import { normalizeText } from "./utils.js";
 
 const PATH = "announcements";
 
+function requireUser(actor) {
+  if (!actor?.uid) {
+    throw new Error("ابتدا وارد حساب خود شوید.");
+  }
+}
+
 function requireStaff(actor) {
-  if (
-    !actor?.uid ||
-    !["admin", "leader"].includes(actor.role)
-  ) {
+  requireUser(actor);
+
+  if (!["admin", "leader"].includes(actor.role)) {
     throw new Error("فقط لیدر و ادمین اجازه مدیریت اطلاعیه‌ها را دارند.");
+  }
+}
+
+function requireAdmin(actor) {
+  requireUser(actor);
+
+  if (actor.role !== "admin") {
+    throw new Error("حذف دائمی اطلاعیه فقط توسط ادمین مجاز است.");
   }
 }
 
 function validateId(id) {
   if (
     typeof id !== "string" ||
-    !id.trim() ||
-    /[.#$/[\]]/.test(id)
+    !/^[A-Za-z0-9_-]{1,128}$/.test(id)
   ) {
     throw new Error("شناسه اطلاعیه معتبر نیست.");
   }
 }
 
 function cleanText(value, maxLength) {
-  return normalizeText(String(value ?? "").trim()).slice(0, maxLength);
+  if (typeof value !== "string") {
+    throw new Error("متن واردشده معتبر نیست.");
+  }
+
+  return normalizeText(value.trim()).slice(0, maxLength);
 }
 
 function validateAnnouncement(data) {
@@ -61,11 +77,15 @@ function normalizeAnnouncement(item) {
     pinned: item.pinned === true,
     archived: item.archived === true,
     authorUid: item.authorUid || "",
+    authorName: item.authorName || "",
     createdAt: Number(item.createdAt) || 0,
-    updatedAt: Number(item.updatedAt) || 0
+    updatedAt: Number(item.updatedAt) || 0,
+    updatedBy: item.updatedBy || "",
+    archivedAt: Number(item.archivedAt) || null
   };
 }
 
+// ایجاد اطلاعیه
 export async function createAnnouncement(data, actor) {
   requireStaff(actor);
 
@@ -77,16 +97,33 @@ export async function createAnnouncement(data, actor) {
     pinned: false,
     archived: false,
     authorUid: actor.uid,
+    authorName: cleanText(
+      actor.displayName || actor.gameName || "مدیریت",
+      80
+    ),
     createdAt: now,
     updatedAt: now
   });
 }
 
+// دریافت اطلاعیه‌ها
 export async function getAnnouncements(options = {}) {
+  if (
+    !options ||
+    typeof options !== "object" ||
+    Array.isArray(options)
+  ) {
+    throw new Error("تنظیمات دریافت اطلاعیه معتبر نیست.");
+  }
+
+  const includeArchived = options.includeArchived === true;
+
   const announcements = await getAllRecords(PATH);
 
   return announcements
-    .filter(item => options.includeArchived || item.archived !== true)
+    .filter(item =>
+      includeArchived || item.archived !== true
+    )
     .map(normalizeAnnouncement)
     .sort((a, b) => {
       if (a.pinned !== b.pinned) {
@@ -97,6 +134,7 @@ export async function getAnnouncements(options = {}) {
     });
 }
 
+// دریافت یک اطلاعیه
 export async function getAnnouncement(id) {
   validateId(id);
 
@@ -105,6 +143,7 @@ export async function getAnnouncement(id) {
   return item ? normalizeAnnouncement(item) : null;
 }
 
+// ویرایش اطلاعیه
 export async function editAnnouncement(id, data, actor) {
   requireStaff(actor);
   validateId(id);
@@ -130,6 +169,7 @@ export async function editAnnouncement(id, data, actor) {
   return true;
 }
 
+// سنجاق کردن اطلاعیه
 export async function pinAnnouncement(id, pinned, actor) {
   requireStaff(actor);
   validateId(id);
@@ -153,6 +193,7 @@ export async function pinAnnouncement(id, pinned, actor) {
   return true;
 }
 
+// انتقال به آرشیو
 export async function archiveAnnouncement(id, actor) {
   requireStaff(actor);
   validateId(id);
@@ -163,17 +204,23 @@ export async function archiveAnnouncement(id, actor) {
     throw new Error("اطلاعیه پیدا نشد.");
   }
 
+  if (existing.archived === true) {
+    throw new Error("این اطلاعیه قبلاً آرشیو شده است.");
+  }
+
   await updateData(`${PATH}/${id}`, {
     archived: true,
     pinned: false,
     archivedBy: actor.uid,
     archivedAt: Date.now(),
+    updatedBy: actor.uid,
     updatedAt: Date.now()
   });
 
   return true;
 }
 
+// بازگردانی از آرشیو
 export async function restoreAnnouncement(id, actor) {
   requireStaff(actor);
   validateId(id);
@@ -184,18 +231,24 @@ export async function restoreAnnouncement(id, actor) {
     throw new Error("اطلاعیه پیدا نشد.");
   }
 
+  if (existing.archived !== true) {
+    throw new Error("این اطلاعیه در آرشیو نیست.");
+  }
+
   await updateData(`${PATH}/${id}`, {
     archived: false,
     restoredBy: actor.uid,
     restoredAt: Date.now(),
+    updatedBy: actor.uid,
     updatedAt: Date.now()
   });
 
   return true;
 }
 
+// حذف دائمی اطلاعیه - فقط ادمین
 export async function removeAnnouncement(id, actor) {
-  requireStaff(actor);
+  requireAdmin(actor);
   validateId(id);
 
   const existing = await getRecord(`${PATH}/${id}`);
@@ -204,7 +257,13 @@ export async function removeAnnouncement(id, actor) {
     throw new Error("اطلاعیه پیدا نشد.");
   }
 
+  if (existing.archived !== true) {
+    throw new Error(
+      "برای حذف دائمی، ابتدا اطلاعیه را به آرشیو منتقل کنید."
+    );
+  }
+
   await deleteData(`${PATH}/${id}`);
 
   return true;
-      }
+    }
