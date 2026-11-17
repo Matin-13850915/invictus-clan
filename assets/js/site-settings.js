@@ -2,6 +2,7 @@
 import {
   createRecord,
   getRecord,
+  getAllRecords,
   updateRecord
 } from "./database.js";
 
@@ -10,7 +11,7 @@ import { createId } from "./utils.js";
 const SETTINGS_PATH = "siteSettings";
 const HISTORY_PATH = "siteSettingsHistory";
 
-const DEFAULT_SETTINGS = Object.freeze({
+export const DEFAULT_SETTINGS = Object.freeze({
   maintenanceMode: false,
   maintenanceMessage: "سایت موقتاً در دست تعمیر است.",
   applicationsEnabled: true,
@@ -33,7 +34,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   messageEditWindowMinutes: 15
 });
 
-const BOOLEAN_SETTINGS = [
+const BOOLEAN_SETTINGS = new Set([
   "maintenanceMode",
   "applicationsEnabled",
   "announcementsEnabled",
@@ -50,13 +51,13 @@ const BOOLEAN_SETTINGS = [
   "teamsEnabled",
   "notificationsEnabled",
   "memberApplicationsEnabled"
-];
+]);
 
-const NUMBER_SETTINGS = {
+const NUMBER_SETTINGS = Object.freeze({
   maxChatMessageLength: { min: 100, max: 5000 },
   maxForumPostLength: { min: 100, max: 10000 },
   messageEditWindowMinutes: { min: 1, max: 60 }
-};
+});
 
 function requireAdmin(actor) {
   if (!actor?.uid || actor.role !== "admin") {
@@ -65,11 +66,14 @@ function requireAdmin(actor) {
 }
 
 function validateSetting(key, value) {
-  if (BOOLEAN_SETTINGS.includes(key)) {
+  if (!Object.prototype.hasOwnProperty.call(DEFAULT_SETTINGS, key)) {
+    throw new Error("این تنظیم قابل ویرایش نیست.");
+  }
+
+  if (BOOLEAN_SETTINGS.has(key)) {
     if (typeof value !== "boolean") {
       throw new Error(`مقدار تنظیم ${key} باید روشن یا خاموش باشد.`);
     }
-
     return value;
   }
 
@@ -88,7 +92,7 @@ function validateSetting(key, value) {
   }
 
   if (key === "maintenanceMessage") {
-    if (typeof value !== "string" || value.length > 1000) {
+    if (typeof value !== "string" || value.trim().length > 1000) {
       throw new Error("متن پیام تعمیرات معتبر نیست.");
     }
 
@@ -98,28 +102,40 @@ function validateSetting(key, value) {
   throw new Error("این تنظیم قابل ویرایش نیست.");
 }
 
-// دریافت تنظیمات
-export async function getSiteSettings() {
-  const saved = await getRecord(SETTINGS_PATH);
+function cleanSavedSettings(saved) {
+  const result = { ...DEFAULT_SETTINGS };
 
-  return {
-    ...DEFAULT_SETTINGS,
-    ...(saved || {})
-  };
+  if (!saved || typeof saved !== "object" || Array.isArray(saved)) {
+    return result;
+  }
+
+  for (const key of Object.keys(DEFAULT_SETTINGS)) {
+    try {
+      if (saved[key] !== undefined) {
+        result[key] = validateSetting(key, saved[key]);
+      }
+    } catch {
+      // مقدار خراب یا قدیمی نادیده گرفته می‌شود.
+    }
+  }
+
+  return result;
 }
 
-// دریافت مقدار یک تنظیم
-export async function getSiteSetting(key) {
-  const settings = await getSiteSettings();
+export async function getSiteSettings() {
+  const saved = await getRecord(SETTINGS_PATH);
+  return cleanSavedSettings(saved);
+}
 
+export async function getSiteSetting(key) {
   if (!Object.prototype.hasOwnProperty.call(DEFAULT_SETTINGS, key)) {
     throw new Error("تنظیم موردنظر وجود ندارد.");
   }
 
+  const settings = await getSiteSettings();
   return settings[key];
 }
 
-// تغییر یک تنظیم
 export async function updateSiteSetting(key, value, actor) {
   requireAdmin(actor);
 
@@ -139,13 +155,13 @@ export async function updateSiteSetting(key, value, actor) {
     previousValue: previous,
     newValue: validatedValue,
     changedBy: actor.uid,
-    changedAt: now
+    changedAt: now,
+    action: "update"
   });
 
   return validatedValue;
 }
 
-// تغییر چند تنظیم با هم
 export async function updateMultipleSiteSettings(changes, actor) {
   requireAdmin(actor);
 
@@ -157,9 +173,15 @@ export async function updateMultipleSiteSettings(changes, actor) {
     throw new Error("اطلاعات تنظیمات معتبر نیست.");
   }
 
+  const entries = Object.entries(changes);
+
+  if (!entries.length) {
+    throw new Error("هیچ تنظیمی برای تغییر ارسال نشده است.");
+  }
+
   const validated = {};
 
-  for (const [key, value] of Object.entries(changes)) {
+  for (const [key, value] of entries) {
     validated[key] = validateSetting(key, value);
   }
 
@@ -179,37 +201,39 @@ export async function updateMultipleSiteSettings(changes, actor) {
       previousValue: previous[key],
       newValue: value,
       changedBy: actor.uid,
-      changedAt: now
+      changedAt: now,
+      action: "update"
     });
   }
 
   return {
     ...previous,
-    ...validated,
-    updatedAt: now,
-    updatedBy: actor.uid
+    ...validated
   };
 }
 
-// دریافت تاریخچه تنظیمات
 export async function getSiteSettingsHistory(actor) {
   requireAdmin(actor);
 
-  const { getAllRecords } = await import("./database.js");
   const history = await getAllRecords(HISTORY_PATH);
 
-  return history.sort(
-    (a, b) => (b.changedAt || 0) - (a.changedAt || 0)
-  );
+  return (Array.isArray(history) ? history : [])
+    .sort((a, b) => (b.changedAt || 0) - (a.changedAt || 0));
 }
 
-// بازگردانی تنظیم به مقدار قبلی
 export async function restoreSiteSetting(historyId, actor) {
   requireAdmin(actor);
 
+  if (
+    typeof historyId !== "string" ||
+    !/^[a-zA-Z0-9_-]{1,150}$/.test(historyId)
+  ) {
+    throw new Error("شناسه تاریخچه معتبر نیست.");
+  }
+
   const history = await getRecord(`${HISTORY_PATH}/${historyId}`);
 
-  if (!history) {
+  if (!history || typeof history.key !== "string") {
     throw new Error("نسخه موردنظر پیدا نشد.");
   }
 
@@ -218,7 +242,5 @@ export async function restoreSiteSetting(historyId, actor) {
     history.previousValue,
     actor
   );
-}
-
-export { DEFAULT_SETTINGS };
-        
+        }
+  
