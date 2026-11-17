@@ -5,6 +5,8 @@ import {
   deleteData
 } from "./database.js";
 
+import { canEditSiteContent } from "./permissions.js";
+
 const LINKS_PATH = "siteSettings/socialLinks";
 
 export const ALLOWED_PLATFORMS = Object.freeze([
@@ -17,13 +19,16 @@ export const ALLOWED_PLATFORMS = Object.freeze([
 ]);
 
 function requireAdmin(actor) {
-  if (!actor?.uid || actor.role !== "admin") {
+  if (!canEditSiteContent(actor)) {
     throw new Error("فقط ادمین اجازه مدیریت لینک‌ها را دارد.");
   }
 }
 
 function validatePlatform(platform) {
-  if (!ALLOWED_PLATFORMS.includes(platform)) {
+  if (
+    typeof platform !== "string" ||
+    !ALLOWED_PLATFORMS.includes(platform)
+  ) {
     throw new Error("این شبکه اجتماعی پشتیبانی نمی‌شود.");
   }
 
@@ -31,7 +36,11 @@ function validatePlatform(platform) {
 }
 
 function validateUrl(value) {
-  if (typeof value !== "string" || value.trim().length > 500) {
+  if (
+    typeof value !== "string" ||
+    !value.trim() ||
+    value.trim().length > 500
+  ) {
     throw new Error("لینک معتبر نیست.");
   }
 
@@ -47,7 +56,10 @@ function validateUrl(value) {
     url.protocol !== "https:" ||
     !url.hostname ||
     url.username ||
-    url.password
+    url.password ||
+    url.hostname.includes("..") ||
+    url.hostname.startsWith(".") ||
+    url.hostname.endsWith(".")
   ) {
     throw new Error("فقط لینک HTTPS معتبر مجاز است.");
   }
@@ -55,43 +67,59 @@ function validateUrl(value) {
   return url.href;
 }
 
-// دریافت لینک‌های فعال و معتبر برای نمایش عمومی
+function normalizeSavedItem(item) {
+  if (
+    !item ||
+    typeof item !== "object" ||
+    Array.isArray(item)
+  ) {
+    return null;
+  }
+
+  try {
+    return {
+      url: validateUrl(item.url),
+      active: item.active === true
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function getSocialLinks() {
   const saved = await getRecord(LINKS_PATH);
 
-  if (!saved || typeof saved !== "object" || Array.isArray(saved)) {
+  if (
+    !saved ||
+    typeof saved !== "object" ||
+    Array.isArray(saved)
+  ) {
     return {};
   }
 
   const result = {};
 
   for (const platform of ALLOWED_PLATFORMS) {
-    const item = saved[platform];
+    const item = normalizeSavedItem(saved[platform]);
 
-    if (!item || item.active !== true) {
-      continue;
-    }
+    if (!item || !item.active) continue;
 
-    try {
-      result[platform] = {
-        url: validateUrl(item.url),
-        active: true
-      };
-    } catch {
-      // لینک نامعتبر نمایش داده نمی‌شود.
-    }
+    result[platform] = item;
   }
 
   return result;
 }
 
-// دریافت تمام لینک‌ها برای پنل مدیریت
 export async function getAllSocialLinks(actor) {
   requireAdmin(actor);
 
   const saved = await getRecord(LINKS_PATH);
 
-  if (!saved || typeof saved !== "object" || Array.isArray(saved)) {
+  if (
+    !saved ||
+    typeof saved !== "object" ||
+    Array.isArray(saved)
+  ) {
     return {};
   }
 
@@ -100,22 +128,29 @@ export async function getAllSocialLinks(actor) {
   for (const platform of ALLOWED_PLATFORMS) {
     const item = saved[platform];
 
-    if (!item || typeof item !== "object") {
+    if (
+      !item ||
+      typeof item !== "object" ||
+      Array.isArray(item)
+    ) {
       continue;
     }
 
     result[platform] = {
       url: typeof item.url === "string" ? item.url : "",
       active: item.active === true,
-      updatedAt: item.updatedAt || null,
-      updatedBy: item.updatedBy || null
+      updatedAt: Number.isFinite(item.updatedAt)
+        ? item.updatedAt
+        : null,
+      updatedBy: typeof item.updatedBy === "string"
+        ? item.updatedBy
+        : null
     };
   }
 
   return result;
 }
 
-// افزودن یا ویرایش لینک
 export async function updateSocialLink(platform, url, actor) {
   requireAdmin(actor);
 
@@ -132,7 +167,6 @@ export async function updateSocialLink(platform, url, actor) {
   return true;
 }
 
-// فعال یا غیرفعال کردن لینک
 export async function toggleSocialLink(platform, active, actor) {
   requireAdmin(actor);
 
@@ -142,13 +176,19 @@ export async function toggleSocialLink(platform, active, actor) {
     throw new Error("وضعیت باید روشن یا خاموش باشد.");
   }
 
-  const current = await getRecord(`${LINKS_PATH}/${platform}`);
+  const path = `${LINKS_PATH}/${platform}`;
+  const current = await getRecord(path);
 
-  if (!current || typeof current.url !== "string") {
+  if (
+    !current ||
+    typeof current.url !== "string"
+  ) {
     throw new Error("ابتدا لینک این شبکه را ثبت کنید.");
   }
 
-  await updateRecord(`${LINKS_PATH}/${platform}`, {
+  validateUrl(current.url);
+
+  await updateRecord(path, {
     active,
     updatedAt: Date.now(),
     updatedBy: actor.uid
@@ -157,19 +197,17 @@ export async function toggleSocialLink(platform, active, actor) {
   return true;
 }
 
-// حذف لینک
 export async function deleteSocialLink(platform, actor) {
   requireAdmin(actor);
 
   validatePlatform(platform);
 
-  const current = await getRecord(`${LINKS_PATH}/${platform}`);
+  const path = `${LINKS_PATH}/${platform}`;
+  const current = await getRecord(path);
 
-  if (!current) {
-    return false;
-  }
+  if (!current) return false;
 
-  await deleteData(`${LINKS_PATH}/${platform}`);
+  await deleteData(path);
 
   return true;
 }
