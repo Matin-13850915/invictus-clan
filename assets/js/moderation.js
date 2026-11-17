@@ -10,47 +10,88 @@ import { normalizeText } from "./utils.js";
 const RESTRICTIONS_PATH = "restrictions";
 const HISTORY_PATH = "moderationHistory";
 
-const ALLOWED_DURATIONS = [
-  15 * 60 * 1000,
-  60 * 60 * 1000,
-  6 * 60 * 60 * 1000,
-  12 * 60 * 60 * 1000,
-  24 * 60 * 60 * 1000
-];
+const MAX_DURATION = 30 * 24 * 60 * 60 * 1000;
+const MAX_REASON_LENGTH = 300;
 
-function requireStaff(actor) {
+function requireUser(actor) {
   if (
     !actor?.uid ||
-    !["admin", "leader"].includes(actor.role)
+    actor.active !== true
   ) {
-    throw new Error("فقط لیدر و ادمین اجازه مدیریت محدودیت‌ها را دارند.");
+    throw new Error("برای این عملیات باید عضو فعال باشید.");
   }
 }
 
-function validateTarget(uid, reason) {
-  if (typeof uid !== "string" || !uid.trim()) {
+function requireStaff(actor) {
+  requireUser(actor);
+
+  if (!["admin", "leader"].includes(actor.role)) {
+    throw new Error("فقط لیدر و ادمین اجازه مدیریت اعضا را دارند.");
+  }
+}
+
+function validateUid(uid) {
+  if (
+    typeof uid !== "string" ||
+    !uid.trim() ||
+    uid.length > 128 ||
+    /[.#$/\[\]]/.test(uid)
+  ) {
     throw new Error("شناسه عضو معتبر نیست.");
   }
-
-  const cleanReason = normalizeText(reason);
-
-  if (cleanReason.length < 3 || cleanReason.length > 300) {
-    throw new Error("دلیل اقدام باید بین ۳ تا ۳۰۰ حرف باشد.");
-  }
-
-  return cleanReason;
 }
 
+function validateReason(reason) {
+  if (typeof reason !== "string") {
+    throw new Error("دلیل اقدام معتبر نیست.");
+  }
+
+  const clean = normalizeText(reason).trim();
+
+  if (
+    clean.length < 3 ||
+    clean.length > MAX_REASON_LENGTH
+  ) {
+    throw new Error("دلیل اقدام باید بین ۳ تا ۳۰۰ کاراکتر باشد.");
+  }
+
+  return clean;
+}
+
+function validateDuration(duration) {
+  const value = Number(duration);
+
+  if (
+    !Number.isSafeInteger(value) ||
+    value <= 0 ||
+    value > MAX_DURATION
+  ) {
+    throw new Error("مدت محدودیت باید بین ۱ دقیقه تا ۳۰ روز باشد.");
+  }
+
+  return value;
+}
+
+function isObject(value) {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    !Array.isArray(value)
+  );
+}
+
+// ثبت اخطار
 export async function issueWarning(
   targetUid,
   reason,
   actor
 ) {
   requireStaff(actor);
+  validateUid(targetUid);
 
-  const cleanReason = validateTarget(targetUid, reason);
+  const cleanReason = validateReason(reason);
 
-  const warningId = await createRecord(
+  return createRecord(
     `${HISTORY_PATH}/${targetUid}/warnings`,
     {
       reason: cleanReason,
@@ -59,10 +100,9 @@ export async function issueWarning(
       active: true
     }
   );
-
-  return warningId;
 }
 
+// اعمال محدودیت زمانی
 export async function restrictMember(
   targetUid,
   duration,
@@ -70,23 +110,13 @@ export async function restrictMember(
   actor
 ) {
   requireStaff(actor);
+  validateUid(targetUid);
 
-  const cleanReason = validateTarget(targetUid, reason);
-
-  const durationMs = Number(duration);
-
-  if (
-    !ALLOWED_DURATIONS.includes(durationMs) &&
-    (!Number.isInteger(durationMs) || durationMs <= 0)
-  ) {
-    throw new Error("مدت محدودیت معتبر نیست.");
-  }
-
-  if (durationMs > 30 * 24 * 60 * 60 * 1000) {
-    throw new Error("مدت محدودیت نمی‌تواند بیشتر از ۳۰ روز باشد.");
-  }
+  const durationMs = validateDuration(duration);
+  const cleanReason = validateReason(reason);
 
   const now = Date.now();
+  const expiresAt = now + durationMs;
 
   const restrictionId = await createRecord(
     `${RESTRICTIONS_PATH}/${targetUid}`,
@@ -94,7 +124,7 @@ export async function restrictMember(
       reason: cleanReason,
       issuedBy: actor.uid,
       issuedAt: now,
-      expiresAt: now + durationMs,
+      expiresAt,
       active: true
     }
   );
@@ -107,68 +137,109 @@ export async function restrictMember(
       duration: durationMs,
       issuedBy: actor.uid,
       issuedAt: now,
-      expiresAt: now + durationMs
+      expiresAt
     }
   );
 
   return restrictionId;
 }
 
-export async function getActiveRestriction(targetUid) {
-  if (!targetUid) {
-    throw new Error("شناسه عضو معتبر نیست.");
+// مشاهده محدودیت فعال؛ توسط خود عضو یا مدیریت
+export async function getActiveRestriction(targetUid, actor) {
+  requireUser(actor);
+  validateUid(targetUid);
+
+  const isOwner = actor.uid === targetUid;
+  const isStaff = ["admin", "leader"].includes(actor.role);
+
+  if (!isOwner && !isStaff) {
+    throw new Error("اجازه مشاهده محدودیت این عضو را ندارید.");
   }
 
-  const data = await readData(`${RESTRICTIONS_PATH}/${targetUid}`);
+  const data = await readData(
+    `${RESTRICTIONS_PATH}/${targetUid}`
+  );
 
-  if (!data) return null;
+  if (!isObject(data)) {
+    return null;
+  }
 
   const now = Date.now();
 
   const active = Object.entries(data)
-    .map(([id, item]) => ({ id, ...item }))
-    .filter(item => {
-      return item.active === true && item.expiresAt > now;
-    })
-    .sort((a, b) => b.expiresAt - a.expiresAt);
+    .filter(([, item]) =>
+      isObject(item) &&
+      item.active === true &&
+      Number(item.expiresAt) > now
+    )
+    .map(([id, item]) => ({
+      id,
+      ...item
+    }))
+    .sort(
+      (a, b) => Number(b.expiresAt) - Number(a.expiresAt)
+    );
 
   return active[0] || null;
 }
 
+// رفع محدودیت
 export async function releaseRestriction(
   targetUid,
   restrictionId,
   actor
 ) {
   requireStaff(actor);
+  validateUid(targetUid);
 
-  if (!targetUid || !restrictionId) {
-    throw new Error("اطلاعات رفع محدودیت معتبر نیست.");
+  if (
+    typeof restrictionId !== "string" ||
+    !restrictionId.trim() ||
+    /[.#$/\[\]]/.test(restrictionId)
+  ) {
+    throw new Error("شناسه محدودیت معتبر نیست.");
   }
 
-  await updateData(
-    `${RESTRICTIONS_PATH}/${targetUid}/${restrictionId}`,
-    {
-      active: false,
-      releasedBy: actor.uid,
-      releasedAt: Date.now()
-    }
-  );
+  const path = `${RESTRICTIONS_PATH}/${targetUid}/${restrictionId}`;
+  const restriction = await readData(path);
+
+  if (!isObject(restriction)) {
+    throw new Error("محدودیت موردنظر پیدا نشد.");
+  }
+
+  if (restriction.active !== true) {
+    throw new Error("این محدودیت قبلاً رفع شده است.");
+  }
+
+  await updateData(path, {
+    active: false,
+    releasedBy: actor.uid,
+    releasedAt: Date.now()
+  });
 
   return true;
 }
 
+// مشاهده سابقه مدیریت؛ فقط مدیریت
 export async function getModerationHistory(targetUid, actor) {
   requireStaff(actor);
+  validateUid(targetUid);
 
-  if (!targetUid) {
-    throw new Error("شناسه عضو معتبر نیست.");
+  const data = await readData(
+    `${HISTORY_PATH}/${targetUid}`
+  );
+
+  if (!isObject(data)) {
+    return {
+      warnings: {},
+      restrictions: {}
+    };
   }
 
-  const data = await readData(`${HISTORY_PATH}/${targetUid}`);
-
-  return data || {
-    warnings: {},
-    restrictions: {}
+  return {
+    warnings: isObject(data.warnings) ? data.warnings : {},
+    restrictions: isObject(data.restrictions)
+      ? data.restrictions
+      : {}
   };
 }
