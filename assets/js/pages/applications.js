@@ -182,6 +182,15 @@ function getApplicationTypeLabel(type) {
   return labels[type] || "نامشخص";
 }
 
+function getContactTypeLabel(type) {
+  const labels = {
+    telegram: "تلگرام",
+    rubika: "روبیکا"
+  };
+
+  return labels[String(type || "").toLowerCase()] || "نامشخص";
+}
+
 function getCompatibleSpecialties(application) {
   if (application.applicationType === "MP") {
     return ["MP"];
@@ -257,6 +266,17 @@ function createApplicationDetails(application) {
     createInfo("رنک MP", application.mpRank),
     createInfo("رنک BR", application.brRank),
     createInfo("ایمیل", application.email),
+
+    createInfo(
+      "نوع راه ارتباطی",
+      getContactTypeLabel(application.contactType)
+    ),
+
+    createInfo(
+      "آیدی یا شماره تماس",
+      application.contactValue
+    ),
+
     createInfo("تلگرام", application.telegram),
     createInfo("روبیکا", application.rubika)
   );
@@ -464,9 +484,7 @@ function createTesterActions(application, user, onChanged) {
     "نتیجه بررسی خود را پس از انجام تست ثبت کنید."
   );
 
-  if (
-    application.status === "awaiting_test"
-  ) {
+  if (application.status === "awaiting_test") {
     section.appendChild(
       createButton(
         "شروع تست",
@@ -808,7 +826,7 @@ export async function renderApplications(container, user) {
 
       const search = $("input", "form-input");
       search.type = "search";
-      search.placeholder = "جستجو با نام، ایمیل یا نام بازی...";
+      search.placeholder = "جستجو با نام، ایمیل، نام بازی یا اطلاعات تماس...";
 
       const statusFilter = createSelect(STATUS_OPTIONS);
 
@@ -832,7 +850,11 @@ export async function renderApplications(container, user) {
             application.gameName,
             application.email,
             application.uid,
-            application.id
+            application.id,
+            application.contactType,
+            application.contactValue,
+            application.telegram,
+            application.rubika
           ].join(" "));
 
           const matchesSearch = searchText.includes(term);
@@ -895,9 +917,3 @@ export async function renderApplications(container, user) {
         createButton("تلاش دوباره", "secondary-button", load)
       );
 
-      container.replaceChildren(errorCard);
-    }
-  };
-
-  await load();
-    }
