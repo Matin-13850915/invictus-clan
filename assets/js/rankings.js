@@ -8,6 +8,16 @@ import {
 import { normalizeText } from "./utils.js";
 
 const PATH = "rankings";
+const HISTORY_PATH = "rankingHistory";
+
+const DEFAULT_RANKING = {
+  points: 0,
+  wins: 0,
+  losses: 0,
+  draws: 0,
+  manualPoints: 0,
+  automaticPoints: 0
+};
 
 function requireStaff(actor) {
   if (
@@ -18,27 +28,79 @@ function requireStaff(actor) {
   }
 }
 
+function validateUid(uid) {
+  if (
+    typeof uid !== "string" ||
+    !uid.trim() ||
+    uid.includes("/") ||
+    uid.includes(".") ||
+    uid.includes("#") ||
+    uid.includes("$") ||
+    uid.includes("[") ||
+    uid.includes("]")
+  ) {
+    throw new Error("شناسه عضو معتبر نیست.");
+  }
+
+  return uid;
+}
+
+function validateSeasonId(seasonId) {
+  if (
+    typeof seasonId !== "string" ||
+    !seasonId.trim() ||
+    /[.#$/[\]]/.test(seasonId)
+  ) {
+    throw new Error("شناسه فصل معتبر نیست.");
+  }
+
+  return seasonId;
+}
+
+function toNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function normalizeRanking(data = {}) {
+  const manualPoints = toNumber(data.manualPoints);
+  const automaticPoints = toNumber(data.automaticPoints);
+
+  return {
+    points: manualPoints + automaticPoints,
+    wins: Math.max(0, toNumber(data.wins)),
+    losses: Math.max(0, toNumber(data.losses)),
+    draws: Math.max(0, toNumber(data.draws)),
+    manualPoints,
+    automaticPoints,
+    displayName: data.displayName || "",
+    updatedAt: data.updatedAt || null
+  };
+}
+
 export async function getRankings(seasonId = "current") {
+  validateSeasonId(seasonId);
+
   const data = await readData(`${PATH}/${seasonId}`);
 
-  if (!data) return [];
+  if (!data || typeof data !== "object") return [];
 
   return Object.entries(data)
-    .filter(([key]) => key !== "settings")
+    .filter(([key, item]) =>
+      key !== "settings" &&
+      item &&
+      typeof item === "object"
+    )
     .map(([uid, item]) => ({
       uid,
-      ...item
+      ...normalizeRanking(item)
     }))
     .sort((a, b) => {
-      const pointsDifference =
-        (Number(b.points) || 0) - (Number(a.points) || 0);
+      const difference = b.points - a.points;
 
-      if (pointsDifference !== 0) return pointsDifference;
+      if (difference !== 0) return difference;
 
-      return (a.displayName || "").localeCompare(
-        b.displayName || "",
-        "fa"
-      );
+      return a.displayName.localeCompare(b.displayName, "fa");
     })
     .map((item, index) => ({
       ...item,
@@ -47,20 +109,12 @@ export async function getRankings(seasonId = "current") {
 }
 
 export async function getMemberRanking(uid, seasonId = "current") {
-  if (!uid) {
-    throw new Error("شناسه عضو معتبر نیست.");
-  }
+  validateUid(uid);
+  validateSeasonId(seasonId);
 
   const data = await readData(`${PATH}/${seasonId}/${uid}`);
 
-  return data || {
-    points: 0,
-    wins: 0,
-    losses: 0,
-    draws: 0,
-    manualPoints: 0,
-    automaticPoints: 0
-  };
+  return normalizeRanking(data || DEFAULT_RANKING);
 }
 
 export async function addManualPoints(
@@ -71,11 +125,13 @@ export async function addManualPoints(
   seasonId = "current"
 ) {
   requireStaff(actor);
+  validateUid(uid);
+  validateSeasonId(seasonId);
 
   const points = Number(amount);
   const cleanReason = normalizeText(reason);
 
-  if (!uid || !Number.isInteger(points) || points === 0) {
+  if (!Number.isInteger(points) || points === 0) {
     throw new Error("مقدار امتیاز معتبر نیست.");
   }
 
@@ -89,31 +145,29 @@ export async function addManualPoints(
 
   const member = await getMemberRanking(uid, seasonId);
 
-  const newManualPoints =
-    (Number(member.manualPoints) || 0) + points;
-
-  const newTotal =
-    (Number(member.automaticPoints) || 0) + newManualPoints;
+  const manualPoints = member.manualPoints + points;
+  const totalPoints = manualPoints + member.automaticPoints;
+  const now = Date.now();
 
   await updateData(`${PATH}/${seasonId}/${uid}`, {
-    manualPoints: newManualPoints,
-    points: newTotal,
-    updatedAt: Date.now()
+    manualPoints,
+    points: totalPoints,
+    updatedAt: now
   });
 
-  await createRecord("rankingHistory", {
+  await createRecord(HISTORY_PATH, {
     uid,
     seasonId,
     amount: points,
     reason: cleanReason,
     type: "manual",
     changedBy: actor.uid,
-    createdAt: Date.now()
+    createdAt: now
   });
 
   return {
-    points: newTotal,
-    manualPoints: newManualPoints
+    points: totalPoints,
+    manualPoints
   };
 }
 
@@ -121,14 +175,23 @@ export async function recordWarPerformance(
   uid,
   result,
   actor,
-  seasonId = "current"
+  seasonId = "current",
+  warId = null
 ) {
   requireStaff(actor);
+  validateUid(uid);
+  validateSeasonId(seasonId);
 
-  const allowedResults = ["win", "loss", "draw"];
-
-  if (!uid || !allowedResults.includes(result)) {
+  if (!["win", "loss", "draw"].includes(result)) {
     throw new Error("نتیجه عملکرد معتبر نیست.");
+  }
+
+  if (warId !== null && (
+    typeof warId !== "string" ||
+    !warId.trim() ||
+    /[.#$/[\]]/.test(warId)
+  )) {
+    throw new Error("شناسه جنگ معتبر نیست.");
   }
 
   const member = await getMemberRanking(uid, seasonId);
@@ -140,61 +203,66 @@ export async function recordWarPerformance(
   };
 
   const automaticPoints =
-    (Number(member.automaticPoints) || 0) +
-    pointsPerResult[result];
-
-  const manualPoints = Number(member.manualPoints) || 0;
+    member.automaticPoints + pointsPerResult[result];
 
   const stats = {
-    wins: Number(member.wins) || 0,
-    losses: Number(member.losses) || 0,
-    draws: Number(member.draws) || 0
+    wins: member.wins + (result === "win" ? 1 : 0),
+    losses: member.losses + (result === "loss" ? 1 : 0),
+    draws: member.draws + (result === "draw" ? 1 : 0)
   };
 
-  if (result === "win") stats.wins++;
-  if (result === "loss") stats.losses++;
-  if (result === "draw") stats.draws++;
-
-  const totalPoints = automaticPoints + manualPoints;
+  const totalPoints = automaticPoints + member.manualPoints;
+  const now = Date.now();
 
   await updateData(`${PATH}/${seasonId}/${uid}`, {
     ...stats,
     automaticPoints,
-    manualPoints,
+    manualPoints: member.manualPoints,
     points: totalPoints,
-    updatedAt: Date.now()
+    updatedAt: now
   });
 
-  await createRecord("rankingHistory", {
+  await createRecord(HISTORY_PATH, {
     uid,
     seasonId,
+    warId,
     result,
     points: pointsPerResult[result],
     type: "war",
     changedBy: actor.uid,
-    createdAt: Date.now()
+    createdAt: now
   });
 
   return {
     ...stats,
     automaticPoints,
-    manualPoints,
+    manualPoints: member.manualPoints,
     points: totalPoints
   };
 }
 
 export async function getRankingHistory(uid) {
-  if (!uid) {
-    throw new Error("شناسه عضو معتبر نیست.");
-  }
+  validateUid(uid);
 
-  const data = await readData("rankingHistory");
+  const data = await readData(HISTORY_PATH);
 
-  if (!data) return [];
+  if (!data || typeof data !== "object") return [];
 
   return Object.entries(data)
-    .filter(([, item]) => item.uid === uid)
+    .filter(([, item]) => item && item.uid === uid)
     .map(([id, item]) => ({ id, ...item }))
-    .sort((a, b) => b.createdAt - a.createdAt);
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+}
+
+export async function getAllRankingHistory(actor) {
+  requireStaff(actor);
+
+  const data = await readData(HISTORY_PATH);
+
+  if (!data || typeof data !== "object") return [];
+
+  return Object.entries(data)
+    .map(([id, item]) => ({ id, ...item }))
+    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     }
-      
+    
