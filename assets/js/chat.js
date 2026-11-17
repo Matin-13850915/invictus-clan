@@ -2,8 +2,7 @@
 import {
   createRecord,
   readData,
-  updateData,
-  deleteData
+  updateData
 } from "./database.js";
 
 import { normalizeText } from "./utils.js";
@@ -15,7 +14,12 @@ const MAX_MESSAGE_LENGTH = 2000;
 const FIXED_ROOMS = ["general", "attachment"];
 
 function requireUser(user) {
-  if (!user?.uid || user.active !== true) {
+  if (
+    !user ||
+    typeof user.uid !== "string" ||
+    !user.uid.trim() ||
+    user.active !== true
+  ) {
     throw new Error("برای استفاده از چت باید عضو فعال باشید.");
   }
 }
@@ -28,34 +32,36 @@ function requireStaff(user) {
   }
 }
 
-function validateRoomId(id) {
+function validateId(id, label) {
   if (
     typeof id !== "string" ||
     !id.trim() ||
-    /[.#$/[\]]/.test(id)
+    /[.#$/\[\]]/.test(id)
   ) {
-    throw new Error("شناسه اتاق معتبر نیست.");
+    throw new Error(`${label} معتبر نیست.`);
   }
+}
+
+function validateRoomId(id) {
+  validateId(id, "شناسه اتاق");
 }
 
 function validateMessageId(id) {
-  if (
-    typeof id !== "string" ||
-    !id.trim() ||
-    /[.#$/[\]]/.test(id)
-  ) {
-    throw new Error("شناسه پیام معتبر نیست.");
+  validateId(id, "شناسه پیام");
+}
+
+function cleanText(value, maxLength) {
+  const result = normalizeText(String(value ?? "")).trim();
+
+  if (!result || result.length > maxLength) {
+    throw new Error(`متن باید بین ۱ تا ${maxLength} کاراکتر باشد.`);
   }
+
+  return result;
 }
 
 function validateMessage(text) {
-  const message = normalizeText(String(text ?? "")).trim();
-
-  if (!message || message.length > MAX_MESSAGE_LENGTH) {
-    throw new Error("پیام نمی‌تواند خالی یا بیشتر از ۲۰۰۰ حرف باشد.");
-  }
-
-  return message;
+  return cleanText(text, MAX_MESSAGE_LENGTH);
 }
 
 async function requireAvailableRoom(roomId, user) {
@@ -68,6 +74,7 @@ async function requireAvailableRoom(roomId, user) {
   }
 }
 
+// دریافت اتاق‌های قابل مشاهده
 export async function getChatRooms(user) {
   requireUser(user);
 
@@ -95,8 +102,10 @@ export async function getChatRooms(user) {
       if (
         !room ||
         typeof room !== "object" ||
+        Array.isArray(room) ||
         FIXED_ROOMS.includes(id) ||
-        room.active === false
+        room.active === false ||
+        room.deletedAt
       ) {
         continue;
       }
@@ -113,16 +122,21 @@ export async function getChatRooms(user) {
   return rooms;
 }
 
+// ایجاد اتاق سفارشی
 export async function createChatRoom(data, actor) {
   requireStaff(actor);
 
-  const title = normalizeText(String(data?.title || "")).trim();
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("اطلاعات اتاق معتبر نیست.");
+  }
+
+  const title = cleanText(data.title, 50);
   const description = normalizeText(
-    String(data?.description || "")
+    String(data.description ?? "")
   ).trim();
 
-  if (title.length < 2 || title.length > 50) {
-    throw new Error("نام اتاق باید بین ۲ تا ۵۰ حرف باشد.");
+  if (title.length < 2) {
+    throw new Error("نام اتاق باید حداقل ۲ حرف باشد.");
   }
 
   if (description.length > 300) {
@@ -133,12 +147,14 @@ export async function createChatRoom(data, actor) {
     title,
     description,
     active: true,
-    createdBy: actor.uid
+    createdBy: actor.uid,
+    createdAt: Date.now()
   });
 
   return id;
 }
 
+// دریافت پیام‌ها
 export async function getMessages(roomId, user) {
   requireUser(user);
   await requireAvailableRoom(roomId, user);
@@ -152,12 +168,13 @@ export async function getMessages(roomId, user) {
   }
 
   return Object.entries(data)
-    .filter(([id, message]) =>
+    .filter(([, message]) =>
       message &&
       typeof message === "object" &&
       !Array.isArray(message) &&
       typeof message.text === "string" &&
-      typeof message.uid === "string"
+      typeof message.uid === "string" &&
+      message.deleted !== true
     )
     .map(([id, message]) => ({
       id,
@@ -167,6 +184,7 @@ export async function getMessages(roomId, user) {
     .sort((a, b) => a.createdAt - b.createdAt);
 }
 
+// ارسال پیام
 export async function sendMessage(roomId, text, user) {
   requireUser(user);
   await requireAvailableRoom(roomId, user);
@@ -181,11 +199,13 @@ export async function sendMessage(roomId, text, user) {
         String(user.displayName || "عضو")
       ).slice(0, 50),
       text: message,
-      edited: false
+      edited: false,
+      deleted: false
     }
   );
 }
 
+// ویرایش پیام خود در مهلت ۱۵ دقیقه
 export async function editMessage(
   roomId,
   messageId,
@@ -200,8 +220,12 @@ export async function editMessage(
   const path = `${CHAT_PATH}/messages/${roomId}/${messageId}`;
   const message = await readData(path);
 
-  if (!message || message.uid !== user.uid) {
-    throw new Error("فقط نویسنده پیام می‌تواند آن را ویرایش کند.");
+  if (
+    !message ||
+    message.uid !== user.uid ||
+    message.deleted === true
+  ) {
+    throw new Error("فقط نویسنده می‌تواند پیام خودش را ویرایش کند.");
   }
 
   const createdAt = Number(message.createdAt) || 0;
@@ -222,6 +246,7 @@ export async function editMessage(
   return true;
 }
 
+// حذف ظاهری پیام خود؛ نگهداری حداقل فراداده
 export async function deleteOwnMessage(
   roomId,
   messageId,
@@ -235,15 +260,25 @@ export async function deleteOwnMessage(
   const path = `${CHAT_PATH}/messages/${roomId}/${messageId}`;
   const message = await readData(path);
 
-  if (!message || message.uid !== user.uid) {
-    throw new Error("فقط نویسنده پیام می‌تواند آن را حذف کند.");
+  if (
+    !message ||
+    message.uid !== user.uid ||
+    message.deleted === true
+  ) {
+    throw new Error("فقط نویسنده می‌تواند پیام خودش را حذف کند.");
   }
 
-  await deleteData(path);
+  await updateData(path, {
+    text: "",
+    deleted: true,
+    deletedAt: Date.now(),
+    deletedBy: user.uid
+  });
 
   return true;
 }
 
+// حذف ظاهری پیام توسط مدیریت
 export async function deleteAnyMessage(
   roomId,
   messageId,
@@ -256,15 +291,21 @@ export async function deleteAnyMessage(
   const path = `${CHAT_PATH}/messages/${roomId}/${messageId}`;
   const message = await readData(path);
 
-  if (!message) {
+  if (!message || message.deleted === true) {
     throw new Error("پیام موردنظر پیدا نشد.");
   }
 
-  await deleteData(path);
+  await updateData(path, {
+    text: "",
+    deleted: true,
+    deletedAt: Date.now(),
+    deletedBy: actor.uid
+  });
 
   return true;
 }
 
+// غیرفعال کردن اتاق
 export async function deactivateChatRoom(roomId, actor) {
   requireStaff(actor);
   validateRoomId(roomId);
@@ -289,6 +330,7 @@ export async function deactivateChatRoom(roomId, actor) {
   return true;
 }
 
+// فعال‌سازی مجدد اتاق
 export async function activateChatRoom(roomId, actor) {
   requireStaff(actor);
   validateRoomId(roomId);
@@ -300,8 +342,8 @@ export async function activateChatRoom(roomId, actor) {
   const path = `${CHAT_PATH}/rooms/${roomId}`;
   const room = await readData(path);
 
-  if (!room) {
-    throw new Error("اتاق موردنظر پیدا نشد.");
+  if (!room || room.deletedAt) {
+    throw new Error("اتاق موردنظر پیدا نشد یا حذف شده است.");
   }
 
   await updateData(path, {
@@ -313,6 +355,7 @@ export async function activateChatRoom(roomId, actor) {
   return true;
 }
 
+// حذف منطقی اتاق
 export async function deleteChatRoom(roomId, actor) {
   requireStaff(actor);
   validateRoomId(roomId);
@@ -324,15 +367,18 @@ export async function deleteChatRoom(roomId, actor) {
   const path = `${CHAT_PATH}/rooms/${roomId}`;
   const room = await readData(path);
 
-  if (!room) {
+  if (!room || room.deletedAt) {
     throw new Error("اتاق موردنظر پیدا نشد.");
   }
 
+  const now = Date.now();
+
   await updateData(path, {
     active: false,
-    deletedBy: actor.uid,
-    deletedAt: Date.now()
+    deletedAt: now,
+    deletedBy: actor.uid
   });
 
   return true;
-    }
+      }
+    
