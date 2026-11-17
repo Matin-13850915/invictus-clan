@@ -8,6 +8,7 @@ import {
 import { normalizeText } from "./utils.js";
 
 const PATH = "tickets";
+const ROLES_PATH = "roles";
 
 const CATEGORIES = [
   "account",
@@ -18,25 +19,49 @@ const CATEGORIES = [
   "other"
 ];
 
+const STAFF_ROLES = ["admin", "leader"];
+
 function requireActiveUser(user) {
   if (!user?.uid || user.active !== true) {
-    throw new Error("فقط اعضای فعال اجازه ثبت تیکت دارند.");
+    throw new Error("فقط اعضای فعال اجازه انجام این عملیات را دارند.");
   }
 }
 
 function requireStaff(user) {
-  if (
-    !user?.uid ||
-    !["admin", "leader", "tester"].includes(user.role)
-  ) {
+  requireActiveUser(user);
+
+  if (!["admin", "leader", "tester"].includes(user.role)) {
     throw new Error("دسترسی به این بخش مجاز نیست.");
   }
 }
 
+function requireManager(user) {
+  requireActiveUser(user);
+
+  if (!STAFF_ROLES.includes(user.role)) {
+    throw new Error("فقط لیدر و ادمین اجازه این عملیات را دارند.");
+  }
+}
+
+function validateId(value, label = "شناسه") {
+  if (
+    typeof value !== "string" ||
+    !/^[A-Za-z0-9_-]{1,128}$/.test(value)
+  ) {
+    throw new Error(`${label} معتبر نیست.`);
+  }
+
+  return value;
+}
+
 function validateTicket(data) {
-  const title = normalizeText(data?.title);
-  const body = normalizeText(data?.body);
-  const category = data?.category;
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("اطلاعات تیکت معتبر نیست.");
+  }
+
+  const title = normalizeText(data.title || "");
+  const body = normalizeText(data.body || "");
+  const category = data.category;
 
   if (title.length < 3 || title.length > 100) {
     throw new Error("عنوان تیکت باید بین ۳ تا ۱۰۰ حرف باشد.");
@@ -53,18 +78,56 @@ function validateTicket(data) {
   return { title, body, category };
 }
 
+async function getTicketOrThrow(ticketId) {
+  const id = validateId(ticketId, "شناسه تیکت");
+  const ticket = await readData(`${PATH}/${id}`);
+
+  if (!ticket || typeof ticket !== "object") {
+    throw new Error("تیکت پیدا نشد.");
+  }
+
+  return { id, ...ticket };
+}
+
+function canAccessTicket(ticket, user) {
+  if (ticket.ownerUid === user.uid) return true;
+
+  if (STAFF_ROLES.includes(user.role)) return true;
+
+  return (
+    user.role === "tester" &&
+    ticket.category === "test" &&
+    ticket.assignedTesterUid === user.uid
+  );
+}
+
+function requireTicketAccess(ticket, user) {
+  requireActiveUser(user);
+
+  if (!canAccessTicket(ticket, user)) {
+    throw new Error("شما اجازه دسترسی به این تیکت را ندارید.");
+  }
+}
+
+function sortTickets(tickets) {
+  return tickets.sort(
+    (a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)
+  );
+}
+
 export async function createTicket(data, user) {
   requireActiveUser(user);
 
   const ticket = validateTicket(data);
+  const now = Date.now();
 
   return await createRecord(PATH, {
     ...ticket,
     ownerUid: user.uid,
     status: "open",
     assignedTesterUid: null,
-    createdAt: Date.now(),
-    updatedAt: Date.now()
+    createdAt: now,
+    updatedAt: now
   });
 }
 
@@ -73,12 +136,13 @@ export async function getMyTickets(user) {
 
   const data = await readData(PATH);
 
-  if (!data) return [];
+  if (!data || typeof data !== "object") return [];
 
-  return Object.entries(data)
-    .filter(([, ticket]) => ticket.ownerUid === user.uid)
-    .map(([id, ticket]) => ({ id, ...ticket }))
-    .sort((a, b) => b.createdAt - a.createdAt);
+  const tickets = Object.entries(data)
+    .filter(([, ticket]) => ticket?.ownerUid === user.uid)
+    .map(([id, ticket]) => ({ ...ticket, id }));
+
+  return sortTickets(tickets);
 }
 
 export async function getAllTickets(user) {
@@ -86,56 +150,51 @@ export async function getAllTickets(user) {
 
   const data = await readData(PATH);
 
-  if (!data) return [];
+  if (!data || typeof data !== "object") return [];
 
-  return Object.entries(data)
-    .map(([id, ticket]) => ({ id, ...ticket }))
-    .sort((a, b) => b.updatedAt - a.updatedAt);
-}
+  let tickets = Object.entries(data)
+    .filter(([, ticket]) => ticket && typeof ticket === "object")
+    .map(([id, ticket]) => ({ ...ticket, id }));
 
-export async function replyToTicket(
-  ticketId,
-  message,
-  user
-) {
-  requireActiveUser(user);
-
-  if (!ticketId) {
-    throw new Error("شناسه تیکت معتبر نیست.");
+  // تستر فقط تیکت‌های تست تخصیص‌یافته به خودش را می‌بیند.
+  if (user.role === "tester") {
+    tickets = tickets.filter(
+      ticket =>
+        ticket.category === "test" &&
+        ticket.assignedTesterUid === user.uid
+    );
   }
 
-  const text = normalizeText(message);
+  return sortTickets(tickets);
+}
+
+export async function getTicket(ticketId, user) {
+  requireActiveUser(user);
+
+  const ticket = await getTicketOrThrow(ticketId);
+  requireTicketAccess(ticket, user);
+
+  return ticket;
+}
+
+export async function replyToTicket(ticketId, message, user) {
+  requireActiveUser(user);
+
+  const ticket = await getTicketOrThrow(ticketId);
+  requireTicketAccess(ticket, user);
+
+  const text = normalizeText(message || "");
 
   if (text.length < 1 || text.length > 2000) {
     throw new Error("پاسخ باید بین ۱ تا ۲۰۰۰ حرف باشد.");
-  }
-
-  const ticket = await readData(`${PATH}/${ticketId}`);
-
-  if (!ticket) {
-    throw new Error("تیکت پیدا نشد.");
-  }
-
-  const isOwner = ticket.ownerUid === user.uid;
-
-  const isStaffMember =
-    ["admin", "leader"].includes(user.role);
-
-  const isAssignedTester =
-    user.role === "tester" &&
-    ticket.assignedTesterUid === user.uid &&
-    ticket.category === "test";
-
-  if (!isOwner && !isStaffMember && !isAssignedTester) {
-    throw new Error("شما اجازه پاسخ به این تیکت را ندارید.");
   }
 
   if (ticket.status === "closed") {
     throw new Error("این تیکت بسته شده است.");
   }
 
-  return await createRecord(
-    `${PATH}/${ticketId}/replies`,
+  const replyId = await createRecord(
+    `${PATH}/${ticket.id}/replies`,
     {
       uid: user.uid,
       displayName: normalizeText(user.displayName || "کاربر"),
@@ -144,37 +203,33 @@ export async function replyToTicket(
       createdAt: Date.now()
     }
   );
+
+  await updateData(`${PATH}/${ticket.id}`, {
+    updatedAt: Date.now(),
+    lastReplyBy: user.uid
+  });
+
+  return replyId;
 }
 
 export async function getTicketReplies(ticketId, user) {
   requireActiveUser(user);
 
-  const ticket = await readData(`${PATH}/${ticketId}`);
+  const ticket = await getTicketOrThrow(ticketId);
+  requireTicketAccess(ticket, user);
 
-  if (!ticket) {
-    throw new Error("تیکت پیدا نشد.");
-  }
+  const data = await readData(
+    `${PATH}/${ticket.id}/replies`
+  );
 
-  const isOwner = ticket.ownerUid === user.uid;
-  const isStaffMember =
-    ["admin", "leader"].includes(user.role);
-
-  const isAssignedTester =
-    user.role === "tester" &&
-    ticket.assignedTesterUid === user.uid &&
-    ticket.category === "test";
-
-  if (!isOwner && !isStaffMember && !isAssignedTester) {
-    throw new Error("دسترسی به پیام‌های این تیکت مجاز نیست.");
-  }
-
-  const data = await readData(`${PATH}/${ticketId}/replies`);
-
-  if (!data) return [];
+  if (!data || typeof data !== "object") return [];
 
   return Object.entries(data)
-    .map(([id, reply]) => ({ id, ...reply }))
-    .sort((a, b) => a.createdAt - b.createdAt);
+    .filter(([, reply]) => reply && typeof reply === "object")
+    .map(([id, reply]) => ({ ...reply, id }))
+    .sort(
+      (a, b) => (a.createdAt || 0) - (b.createdAt || 0)
+    );
 }
 
 export async function assignTicketToTester(
@@ -182,23 +237,63 @@ export async function assignTicketToTester(
   testerUid,
   actor
 ) {
-  if (!actor?.uid || !["admin", "leader"].includes(actor.role)) {
-    throw new Error("فقط لیدر و ادمین اجازه تخصیص تیکت را دارند.");
-  }
+  requireManager(actor);
 
-  if (!ticketId || !testerUid) {
-    throw new Error("اطلاعات تخصیص معتبر نیست.");
-  }
+  const id = validateId(ticketId, "شناسه تیکت");
+  const uid = validateId(testerUid, "شناسه تستر");
 
-  const ticket = await readData(`${PATH}/${ticketId}`);
+  const ticket = await getTicketOrThrow(id);
 
-  if (!ticket || ticket.category !== "test") {
+  if (ticket.category !== "test") {
     throw new Error("فقط تیکت‌های مربوط به تست قابل تخصیص هستند.");
   }
 
-  await updateData(`${PATH}/${ticketId}`, {
-    assignedTesterUid: testerUid,
+  if (ticket.status === "closed") {
+    throw new Error("تیکت بسته‌شده قابل تخصیص نیست.");
+  }
+
+  const tester = await readData(`${ROLES_PATH}/${uid}`);
+
+  if (
+    !tester ||
+    tester.role !== "tester" ||
+    tester.active !== true ||
+    !["MP", "BR"].includes(tester.specialty)
+  ) {
+    throw new Error("تستر فعال و معتبر پیدا نشد.");
+  }
+
+  if (
+    ticket.specialty &&
+    ticket.specialty !== tester.specialty
+  ) {
+    throw new Error("تخصص تستر با موضوع تیکت مطابقت ندارد.");
+  }
+
+  await updateData(`${PATH}/${id}`, {
+    assignedTesterUid: uid,
     assignedBy: actor.uid,
+    assignedAt: Date.now(),
+    updatedAt: Date.now()
+  });
+
+  return true;
+}
+
+export async function unassignTicketTester(ticketId, actor) {
+  requireManager(actor);
+
+  const id = validateId(ticketId, "شناسه تیکت");
+  const ticket = await getTicketOrThrow(id);
+
+  if (ticket.category !== "test") {
+    throw new Error("این تیکت مربوط به تست نیست.");
+  }
+
+  await updateData(`${PATH}/${id}`, {
+    assignedTesterUid: null,
+    unassignedBy: actor.uid,
+    unassignedAt: Date.now(),
     updatedAt: Date.now()
   });
 
@@ -206,18 +301,16 @@ export async function assignTicketToTester(
 }
 
 export async function closeTicket(ticketId, actor) {
-  if (
-    !actor?.uid ||
-    !["admin", "leader"].includes(actor.role)
-  ) {
-    throw new Error("فقط لیدر و ادمین اجازه بستن تیکت را دارند.");
+  requireManager(actor);
+
+  const id = validateId(ticketId, "شناسه تیکت");
+  const ticket = await getTicketOrThrow(id);
+
+  if (ticket.status === "closed") {
+    throw new Error("این تیکت قبلاً بسته شده است.");
   }
 
-  if (!ticketId) {
-    throw new Error("شناسه تیکت معتبر نیست.");
-  }
-
-  await updateData(`${PATH}/${ticketId}`, {
+  await updateData(`${PATH}/${id}`, {
     status: "closed",
     closedBy: actor.uid,
     closedAt: Date.now(),
@@ -226,3 +319,24 @@ export async function closeTicket(ticketId, actor) {
 
   return true;
 }
+
+export async function reopenTicket(ticketId, actor) {
+  requireManager(actor);
+
+  const id = validateId(ticketId, "شناسه تیکت");
+  const ticket = await getTicketOrThrow(id);
+
+  if (ticket.status !== "closed") {
+    throw new Error("این تیکت بسته نیست.");
+  }
+
+  await updateData(`${PATH}/${id}`, {
+    status: "open",
+    reopenedBy: actor.uid,
+    reopenedAt: Date.now(),
+    updatedAt: Date.now()
+  });
+
+  return true;
+      }
+                      
