@@ -1,4 +1,3 @@
-
 import {
   createRecord,
   readData,
@@ -13,15 +12,20 @@ const PATH = "teams";
 function requireStaff(actor) {
   if (
     !actor?.uid ||
+    actor.active !== true ||
     !["admin", "leader"].includes(actor.role)
   ) {
-    throw new Error("فقط لیدر و ادمین اجازه مدیریت تیم‌ها را دارند.");
+    throw new Error("فقط لیدر و ادمین فعال اجازه مدیریت تیم‌ها را دارند.");
   }
 }
 
 function requireAdmin(actor) {
-  if (!actor?.uid || actor.role !== "admin") {
-    throw new Error("این عملیات فقط برای ادمین مجاز است.");
+  if (
+    !actor?.uid ||
+    actor.active !== true ||
+    actor.role !== "admin"
+  ) {
+    throw new Error("این عملیات فقط برای ادمین فعال مجاز است.");
   }
 }
 
@@ -41,9 +45,12 @@ function validateTeam(data) {
     throw new Error("اطلاعات تیم معتبر نیست.");
   }
 
-  const name = normalizeText(data.name || "");
-  const description = normalizeText(data.description || "");
-  const type = data.type;
+  const name = normalizeText(String(data.name || "")).trim();
+  const description = normalizeText(
+    String(data.description || "")
+  ).trim();
+
+  const type = String(data.type || "").trim().toUpperCase();
 
   if (name.length < 2 || name.length > 40) {
     throw new Error("نام تیم باید بین ۲ تا ۴۰ حرف باشد.");
@@ -68,6 +75,7 @@ export async function createTeam(data, actor) {
   requireStaff(actor);
 
   const team = validateTeam(data);
+
   const captainUid = data.captainUid
     ? validateMemberUid(data.captainUid)
     : null;
@@ -81,7 +89,7 @@ export async function createTeam(data, actor) {
     };
   }
 
-  return await createRecord(PATH, {
+  return createRecord(PATH, {
     ...team,
     captainUid,
     members,
@@ -101,15 +109,20 @@ export async function getTeams(options = {}, actor = null) {
 
   const data = await readData(PATH);
 
-  if (!data || typeof data !== "object") {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
     return [];
   }
 
   return Object.entries(data)
-    .filter(([, team]) => team && typeof team === "object")
+    .filter(([, team]) =>
+      team &&
+      typeof team === "object" &&
+      !Array.isArray(team) &&
+      !team.deletedAt
+    )
     .map(([id, team]) => ({ ...team, id }))
     .filter(team => {
-      if (!includeInactive && team.active === false) {
+      if (!includeInactive && team.active !== true) {
         return false;
       }
 
@@ -131,7 +144,7 @@ export async function getTeam(teamId) {
   const id = validateId(teamId, "شناسه تیم");
   const team = await readData(`${PATH}/${id}`);
 
-  if (!team || team.active === false) {
+  if (!team || team.active !== true || team.deletedAt) {
     return null;
   }
 
@@ -146,7 +159,7 @@ export async function updateTeam(teamId, data, actor) {
 
   const existing = await readData(`${PATH}/${id}`);
 
-  if (!existing) {
+  if (!existing || existing.deletedAt) {
     throw new Error("تیم موردنظر پیدا نشد.");
   }
 
@@ -167,7 +180,7 @@ export async function addTeamMember(teamId, memberUid, actor) {
 
   const team = await readData(`${PATH}/${id}`);
 
-  if (!team || team.active === false) {
+  if (!team || team.active !== true || team.deletedAt) {
     throw new Error("تیم فعال پیدا نشد.");
   }
 
@@ -193,7 +206,7 @@ export async function removeTeamMember(teamId, memberUid, actor) {
 
   const team = await readData(`${PATH}/${id}`);
 
-  if (!team?.members?.[uid]) {
+  if (!team || !team.members?.[uid]) {
     throw new Error("این عضو در تیم وجود ندارد.");
   }
 
@@ -214,7 +227,7 @@ export async function setTeamCaptain(teamId, captainUid, actor) {
 
   const team = await readData(`${PATH}/${id}`);
 
-  if (!team || team.active === false) {
+  if (!team || team.active !== true || team.deletedAt) {
     throw new Error("تیم فعال پیدا نشد.");
   }
 
@@ -237,7 +250,7 @@ export async function deactivateTeam(teamId, actor) {
   const id = validateId(teamId, "شناسه تیم");
   const team = await readData(`${PATH}/${id}`);
 
-  if (!team) {
+  if (!team || team.deletedAt) {
     throw new Error("تیم موردنظر پیدا نشد.");
   }
 
@@ -257,8 +270,8 @@ export async function activateTeam(teamId, actor) {
   const id = validateId(teamId, "شناسه تیم");
   const team = await readData(`${PATH}/${id}`);
 
-  if (!team) {
-    throw new Error("تیم موردنظر پیدا نشد.");
+  if (!team || team.deletedAt) {
+    throw new Error("تیم موردنظر پیدا نشد یا حذف شده است.");
   }
 
   await updateData(`${PATH}/${id}`, {
@@ -284,5 +297,4 @@ export async function deleteTeam(teamId, actor) {
   await deleteData(`${PATH}/${id}`);
 
   return true;
-      }
-      
+}
