@@ -4,14 +4,17 @@ const SPECIALTIES = ["MP", "BR"];
 const APPLICATION_TYPES = ["MP", "BR", "BOTH"];
 
 export function required(value) {
-  return value !== null &&
+  return (
+    value !== null &&
     value !== undefined &&
-    String(value).trim().length > 0;
+    String(value).trim().length > 0
+  );
 }
 
 export function validEmail(email) {
   return (
     typeof email === "string" &&
+    email.length <= 254 &&
     /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
   );
 }
@@ -36,13 +39,22 @@ export function validGameName(name) {
 }
 
 export function validGameUid(uid) {
-  const value = String(uid ?? "").trim();
-  return /^[0-9]{5,30}$/.test(value);
+  return /^[0-9]{5,30}$/.test(
+    String(uid ?? "").trim()
+  );
 }
 
 export function validGameLevel(level) {
   const number = Number(level);
-  return Number.isInteger(number) && number >= 1 && number <= 500;
+
+  return (
+    level !== "" &&
+    level !== null &&
+    level !== undefined &&
+    Number.isInteger(number) &&
+    number >= 1 &&
+    number <= 500
+  );
 }
 
 export function validRank(rank, allowedRanks = []) {
@@ -71,6 +83,7 @@ export function validDate(value) {
   }
 
   const date = new Date(value);
+
   return Number.isFinite(date.getTime());
 }
 
@@ -80,6 +93,7 @@ export function validPositiveNumber(value) {
   }
 
   const number = Number(value);
+
   return Number.isFinite(number) && number > 0;
 }
 
@@ -89,11 +103,15 @@ export function validNonNegativeNumber(value) {
   }
 
   const number = Number(value);
+
   return Number.isFinite(number) && number >= 0;
 }
 
 export function validNumberRange(value, min, max) {
   if (
+    value === "" ||
+    value === null ||
+    value === undefined ||
     !Number.isFinite(Number(min)) ||
     !Number.isFinite(Number(max)) ||
     Number(min) > Number(max)
@@ -104,9 +122,6 @@ export function validNumberRange(value, min, max) {
   const number = Number(value);
 
   return (
-    value !== "" &&
-    value !== null &&
-    value !== undefined &&
     Number.isFinite(number) &&
     number >= Number(min) &&
     number <= Number(max)
@@ -124,15 +139,24 @@ export function validTextLength(value, min = 1, max = 1000) {
   }
 
   const text = String(value ?? "").trim();
+
   return text.length >= min && text.length <= max;
 }
 
 export function validUrl(value) {
-  if (typeof value !== "string" || !value.trim()) return false;
+  if (typeof value !== "string" || !value.trim()) {
+    return false;
+  }
 
   try {
     const url = new URL(value.trim());
-    return ["http:", "https:"].includes(url.protocol);
+
+    return (
+      ["http:", "https:"].includes(url.protocol) &&
+      Boolean(url.hostname) &&
+      !url.username &&
+      !url.password
+    );
   } catch {
     return false;
   }
@@ -140,6 +164,7 @@ export function validUrl(value) {
 
 export function validPhone(value) {
   const phone = String(value ?? "").replace(/[\s-]/g, "");
+
   return /^\+?[0-9]{8,15}$/.test(phone);
 }
 
@@ -192,5 +217,10 @@ export function validApplicationStatus(status) {
 }
 
 export function validChatRoomType(type) {
-  return ["general", "attachment", "custom", "staff"].includes(type);
+  return [
+    "general",
+    "attachment",
+    "custom",
+    "staff"
+  ].includes(type);
     }
