@@ -8,8 +8,6 @@ import {
 
 import { normalizeText } from "./utils.js";
 
-const PATH = "applications";
-
 export const APPLICATION_STATUS = Object.freeze({
   PENDING: "pending",
   AWAITING_TESTER: "awaiting_tester",
@@ -46,8 +44,19 @@ const TERMINAL_STATUSES = [
 ];
 
 function requireUser(actor) {
-  if (!actor || typeof actor.uid !== "string" || !actor.uid.trim()) {
+  if (
+    !actor ||
+    typeof actor.uid !== "string" ||
+    !actor.uid.trim()
+  ) {
     throw new Error("برای انجام این عملیات باید وارد حساب شوید.");
+  }
+
+  if (
+    actor.active !== true ||
+    ["banned", "suspended"].includes(actor.status)
+  ) {
+    throw new Error("حساب شما فعال نیست.");
   }
 }
 
@@ -68,7 +77,9 @@ function requireTesterOrLeader(actor) {
 }
 
 function cleanText(value, maxLength = 300) {
-  return normalizeText(String(value ?? "").trim()).slice(0, maxLength);
+  return normalizeText(
+    String(value ?? "").trim()
+  ).slice(0, maxLength);
 }
 
 function assertId(id, label = "شناسه درخواست") {
@@ -82,14 +93,30 @@ function assertId(id, label = "شناسه درخواست") {
 }
 
 function validateApplication(data) {
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
+  if (
+    !data ||
+    typeof data !== "object" ||
+    Array.isArray(data)
+  ) {
     throw new Error("اطلاعات درخواست معتبر نیست.");
   }
 
   const gameName = cleanText(data.gameName, 40);
-  const applicationType = String(data.applicationType || "").toUpperCase();
+  const applicationType = String(
+    data.applicationType || ""
+  ).toUpperCase();
+
   const gameLevel = Number(data.gameLevel);
   const email = cleanText(data.email, 120).toLowerCase();
+
+  const contactType = String(
+    data.contactType || ""
+  ).toLowerCase();
+
+  const contactValue = cleanText(
+    data.contactValue,
+    100
+  );
 
   if (gameName.length < 2) {
     throw new Error("نام داخل بازی باید حداقل ۲ کاراکتر باشد.");
@@ -99,22 +126,69 @@ function validateApplication(data) {
     throw new Error("نوع درخواست معتبر نیست.");
   }
 
-  if (!Number.isInteger(gameLevel) || gameLevel < 1 || gameLevel > 500) {
+  if (
+    !Number.isInteger(gameLevel) ||
+    gameLevel < 1 ||
+    gameLevel > 500
+  ) {
     throw new Error("لول بازی معتبر نیست.");
   }
 
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (
+    email &&
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+  ) {
     throw new Error("فرمت ایمیل معتبر نیست.");
   }
 
+  if (!["telegram", "rubika"].includes(contactType)) {
+    throw new Error("نوع راه ارتباطی معتبر نیست.");
+  }
+
+  if (contactValue.length < 3) {
+    throw new Error("اطلاعات راه ارتباطی معتبر نیست.");
+  }
+
+  const realName = cleanText(data.realName, 80);
+
+  if (realName.length < 2) {
+    throw new Error("نام واقعی باید حداقل ۲ کاراکتر باشد.");
+  }
+
+  const mpRank = cleanText(data.mpRank, 40);
+  const brRank = cleanText(data.brRank, 40);
+
+  if (
+    applicationType === "MP" &&
+    !mpRank
+  ) {
+    throw new Error("رنک مولتی‌پلیر را وارد کنید.");
+  }
+
+  if (
+    applicationType === "BR" &&
+    !brRank
+  ) {
+    throw new Error("رنک بتل رویال را وارد کنید.");
+  }
+
+  if (
+    applicationType === "BOTH" &&
+    (!mpRank || !brRank)
+  ) {
+    throw new Error("رنک هر دو بخش را وارد کنید.");
+  }
+
   return {
+    realName,
     gameName,
     gameLevel,
     applicationType,
-    mpRank: cleanText(data.mpRank, 40),
-    brRank: cleanText(data.brRank, 40),
-    realName: cleanText(data.realName, 80),
+    mpRank,
+    brRank,
     email,
+    contactType,
+    contactValue,
     telegram: cleanText(data.telegram, 80),
     rubika: cleanText(data.rubika, 80),
     description: cleanText(data.description, 1000)
@@ -124,26 +198,56 @@ function validateApplication(data) {
 function sanitizeApplication(item) {
   return {
     id: item.id,
-    uid: item.uid,
+    uid: item.uid || null,
+
+    realName: item.realName || "",
     gameName: item.gameName || "",
     gameLevel: item.gameLevel || 0,
+
     applicationType: item.applicationType || "",
     mpRank: item.mpRank || "",
     brRank: item.brRank || "",
+
+    email: item.email || "",
+
+    contactType: item.contactType || "",
+    contactValue: item.contactValue || "",
+
+    telegram: item.telegram || "",
+    rubika: item.rubika || "",
+    description: item.description || "",
+
     status: item.status || APPLICATION_STATUS.PENDING,
-    statusLabel: STATUS_LABELS[item.status] || "وضعیت نامشخص",
+    statusLabel:
+      STATUS_LABELS[item.status] || "وضعیت نامشخص",
+
     assignedTesterUid: item.assignedTesterUid || null,
     assignedSpecialty: item.assignedSpecialty || null,
+
     testResult: item.testResult || null,
     testNote: item.testNote || "",
     leaderNote: item.leaderNote || "",
+
     createdAt: item.createdAt || null,
-    updatedAt: item.updatedAt || null
+    updatedAt: item.updatedAt || null,
+
+    assignedBy: item.assignedBy || null,
+    assignedAt: item.assignedAt || null,
+
+    testedBy: item.testedBy || null,
+    testedAt: item.testedAt || null,
+
+    reviewedBy: item.reviewedBy || null,
+    reviewedAt: item.reviewedAt || null,
+
+    internalNote: item.internalNote || ""
   };
 }
 
 function canTesterHandle(application, actor) {
-  if (actor.role !== "tester") return true;
+  if (actor.role !== "tester") {
+    return true;
+  }
 
   if (
     application.assignedTesterUid !== actor.uid ||
@@ -173,7 +277,8 @@ export async function createApplication(data, actor) {
   requireUser(actor);
 
   const application = validateApplication(data);
-  const existing = await getAllRecords(PATH);
+
+  const existing = await getAllRecords("applications");
 
   const hasActiveApplication = existing.some(item =>
     item.uid === actor.uid &&
@@ -186,13 +291,21 @@ export async function createApplication(data, actor) {
 
   const now = Date.now();
 
-  return await createRecord(PATH, {
+  return await createRecord("applications", {
     ...application,
+
     uid: actor.uid,
+
     status: APPLICATION_STATUS.PENDING,
+
     assignedTesterUid: null,
     assignedSpecialty: null,
+
+    testResult: null,
+    testNote: "",
+    leaderNote: "",
     internalNote: "",
+
     createdAt: now,
     updatedAt: now
   });
@@ -201,25 +314,38 @@ export async function createApplication(data, actor) {
 export async function getMyApplicationStatus(actor) {
   requireUser(actor);
 
-  const applications = await getAllRecords(PATH);
+  const applications = await getAllRecords("applications");
 
   return applications
     .filter(item => item.uid === actor.uid)
     .map(sanitizeApplication)
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    .sort((a, b) =>
+      (b.createdAt || 0) - (a.createdAt || 0)
+    );
 }
 
-export async function getMyApplicationDetails(applicationId, actor) {
+export async function getMyApplicationDetails(
+  applicationId,
+  actor
+) {
   requireUser(actor);
   assertId(applicationId);
 
-  const application = await getRecord(`${PATH}/${applicationId}`);
+  const application = await getRecord(
+    `applications/${applicationId}`
+  );
 
-  if (!application || application.uid !== actor.uid) {
+  if (
+    !application ||
+    application.uid !== actor.uid
+  ) {
     throw new Error("درخواست موردنظر پیدا نشد.");
   }
 
-  return sanitizeApplication(application);
+  return sanitizeApplication({
+    ...application,
+    id: applicationId
+  });
 }
 
 export async function getApplications(actor, options = {}) {
@@ -229,16 +355,32 @@ export async function getApplications(actor, options = {}) {
     throw new Error("اجازه مشاهده درخواست‌ها را ندارید.");
   }
 
-  const applications = await getAllRecords(PATH);
+  if (
+    actor.role === "tester" &&
+    !["MP", "BR"].includes(actor.specialty)
+  ) {
+    throw new Error("تخصص تستر معتبر نیست.");
+  }
+
+  const applications = await getAllRecords("applications");
+
   const status = options.status || null;
 
-  if (status && !Object.prototype.hasOwnProperty.call(STATUS_LABELS, status)) {
+  if (
+    status &&
+    !Object.prototype.hasOwnProperty.call(
+      STATUS_LABELS,
+      status
+    )
+  ) {
     throw new Error("فیلتر وضعیت معتبر نیست.");
   }
 
   return applications
     .filter(item => {
-      if (status && item.status !== status) return false;
+      if (status && item.status !== status) {
+        return false;
+      }
 
       if (actor.role === "tester") {
         return canTesterHandle(item, actor);
@@ -246,19 +388,21 @@ export async function getApplications(actor, options = {}) {
 
       return true;
     })
-    .map(item => ({
-      ...sanitizeApplication(item),
-      realName: item.realName || "",
-      email: item.email || "",
-      telegram: item.telegram || "",
-      rubika: item.rubika || "",
-      description: item.description || "",
-      internalNote:
-        ["admin", "leader"].includes(actor.role)
-          ? item.internalNote || ""
-          : ""
-    }))
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    .map(item => {
+      const sanitized = sanitizeApplication(item);
+
+      if (
+        actor.role !== "admin" &&
+        actor.role !== "leader"
+      ) {
+        sanitized.internalNote = "";
+      }
+
+      return sanitized;
+    })
+    .sort((a, b) =>
+      (b.createdAt || 0) - (a.createdAt || 0)
+    );
 }
 
 export async function assignApplicationTester(
@@ -268,26 +412,32 @@ export async function assignApplicationTester(
   actor
 ) {
   requireLeader(actor);
-  assertId(applicationId);
 
+  assertId(applicationId);
   assertId(testerUid, "شناسه تستر");
 
   if (!["MP", "BR"].includes(specialty)) {
     throw new Error("تخصص تستر باید MP یا BR باشد.");
   }
 
-  const application = await getRecord(`${PATH}/${applicationId}`);
+  const application = await getRecord(
+    `applications/${applicationId}`
+  );
 
   if (!application) {
     throw new Error("درخواست پیدا نشد.");
   }
 
   if (
-    !["pending", "awaiting_tester", "retest_requested"].includes(
-      application.status
-    )
+    ![
+      "pending",
+      "awaiting_tester",
+      "retest_requested"
+    ].includes(application.status)
   ) {
-    throw new Error("وضعیت فعلی درخواست اجازه تعیین تستر نمی‌دهد.");
+    throw new Error(
+      "وضعیت فعلی درخواست اجازه تعیین تستر نمی‌دهد."
+    );
   }
 
   if (
@@ -306,23 +456,34 @@ export async function assignApplicationTester(
 
   const now = Date.now();
 
-  await updateData(`${PATH}/${applicationId}`, {
-    assignedTesterUid: testerUid,
-    assignedSpecialty: specialty,
-    status: APPLICATION_STATUS.AWAITING_TEST,
-    assignedBy: actor.uid,
-    assignedAt: now,
-    updatedAt: now
-  });
+  await updateData(
+    `applications/${applicationId}`,
+    {
+      assignedTesterUid: testerUid,
+      assignedSpecialty: specialty,
+
+      status: APPLICATION_STATUS.AWAITING_TEST,
+
+      assignedBy: actor.uid,
+      assignedAt: now,
+
+      updatedAt: now
+    }
+  );
 
   return true;
 }
 
-export async function startApplicationTest(applicationId, actor) {
+export async function startApplicationTest(
+  applicationId,
+  actor
+) {
   requireTesterOrLeader(actor);
   assertId(applicationId);
 
-  const application = await getRecord(`${PATH}/${applicationId}`);
+  const application = await getRecord(
+    `applications/${applicationId}`
+  );
 
   if (!application) {
     throw new Error("درخواست پیدا نشد.");
@@ -332,18 +493,25 @@ export async function startApplicationTest(applicationId, actor) {
     throw new Error("این درخواست به شما اختصاص داده نشده است.");
   }
 
-  if (application.status !== APPLICATION_STATUS.AWAITING_TEST) {
+  if (
+    application.status !== APPLICATION_STATUS.AWAITING_TEST
+  ) {
     throw new Error("این درخواست در وضعیت شروع تست نیست.");
   }
 
   const now = Date.now();
 
-  await updateData(`${PATH}/${applicationId}`, {
-    status: APPLICATION_STATUS.TESTING,
-    testStartedBy: actor.uid,
-    testStartedAt: now,
-    updatedAt: now
-  });
+  await updateData(
+    `applications/${applicationId}`,
+    {
+      status: APPLICATION_STATUS.TESTING,
+
+      testStartedBy: actor.uid,
+      testStartedAt: now,
+
+      updatedAt: now
+    }
+  );
 
   return true;
 }
@@ -357,11 +525,19 @@ export async function submitTestResult(
   requireTesterOrLeader(actor);
   assertId(applicationId);
 
-  if (!["recommended", "not_recommended", "retest"].includes(result)) {
+  if (
+    ![
+      "recommended",
+      "not_recommended",
+      "retest"
+    ].includes(result)
+  ) {
     throw new Error("نتیجه تست معتبر نیست.");
   }
 
-  const application = await getRecord(`${PATH}/${applicationId}`);
+  const application = await getRecord(
+    `applications/${applicationId}`
+  );
 
   if (!application) {
     throw new Error("درخواست پیدا نشد.");
@@ -372,21 +548,32 @@ export async function submitTestResult(
   }
 
   if (
-    !["awaiting_test", "testing"].includes(application.status)
+    ![
+      APPLICATION_STATUS.AWAITING_TEST,
+      APPLICATION_STATUS.TESTING
+    ].includes(application.status)
   ) {
-    throw new Error("این درخواست در وضعیت قابل ثبت نتیجه تست نیست.");
+    throw new Error(
+      "این درخواست در وضعیت قابل ثبت نتیجه تست نیست."
+    );
   }
 
   const now = Date.now();
 
-  await updateData(`${PATH}/${applicationId}`, {
-    testResult: result,
-    testNote: cleanText(note, 1000),
-    testedBy: actor.uid,
-    testedAt: now,
-    status: APPLICATION_STATUS.AWAITING_LEADER,
-    updatedAt: now
-  });
+  await updateData(
+    `applications/${applicationId}`,
+    {
+      testResult: result,
+      testNote: cleanText(note, 1000),
+
+      testedBy: actor.uid,
+      testedAt: now,
+
+      status: APPLICATION_STATUS.AWAITING_LEADER,
+
+      updatedAt: now
+    }
+  );
 
   return true;
 }
@@ -400,11 +587,19 @@ export async function decideApplication(
   requireLeader(actor);
   assertId(applicationId);
 
-  if (!["accepted", "rejected", "retest_requested"].includes(decision)) {
+  if (
+    ![
+      "accepted",
+      "rejected",
+      "retest_requested"
+    ].includes(decision)
+  ) {
     throw new Error("تصمیم نهایی معتبر نیست.");
   }
 
-  const application = await getRecord(`${PATH}/${applicationId}`);
+  const application = await getRecord(
+    `applications/${applicationId}`
+  );
 
   if (!application) {
     throw new Error("درخواست پیدا نشد.");
@@ -418,38 +613,58 @@ export async function decideApplication(
       "retest_requested"
     ].includes(application.status)
   ) {
-    throw new Error("وضعیت فعلی درخواست اجازه این تصمیم را نمی‌دهد.");
+    throw new Error(
+      "وضعیت فعلی درخواست اجازه این تصمیم را نمی‌دهد."
+    );
   }
 
   if (
     decision === "accepted" &&
-    application.status !== "awaiting_leader" &&
-    application.status !== "pending"
+    ![
+      "awaiting_leader",
+      "pending"
+    ].includes(application.status)
   ) {
-    throw new Error("برای پذیرش نهایی ابتدا باید نتیجه تست یا بررسی اولیه ثبت شود.");
+    throw new Error(
+      "برای پذیرش نهایی ابتدا باید نتیجه تست یا بررسی اولیه ثبت شود."
+    );
   }
 
   const now = Date.now();
 
-  await updateData(`${PATH}/${applicationId}`, {
-    status: decision,
-    leaderDecision: decision,
-    leaderNote: cleanText(note, 1000),
-    reviewedBy: actor.uid,
-    reviewedAt: now,
-    updatedAt: now
-  });
+  await updateData(
+    `applications/${applicationId}`,
+    {
+      status: decision,
+      leaderDecision: decision,
+
+      leaderNote: cleanText(note, 1000),
+
+      reviewedBy: actor.uid,
+      reviewedAt: now,
+
+      updatedAt: now
+    }
+  );
 
   return true;
 }
 
-export async function withdrawApplication(applicationId, actor) {
+export async function withdrawApplication(
+  applicationId,
+  actor
+) {
   requireUser(actor);
   assertId(applicationId);
 
-  const application = await getRecord(`${PATH}/${applicationId}`);
+  const application = await getRecord(
+    `applications/${applicationId}`
+  );
 
-  if (!application || application.uid !== actor.uid) {
+  if (
+    !application ||
+    application.uid !== actor.uid
+  ) {
     throw new Error("درخواست موردنظر پیدا نشد.");
   }
 
@@ -459,15 +674,19 @@ export async function withdrawApplication(applicationId, actor) {
 
   const now = Date.now();
 
-  await updateData(`${PATH}/${applicationId}`, {
-    status: APPLICATION_STATUS.WITHDRAWN,
-    withdrawnAt: now,
-    updatedAt: now
-  });
+  await updateData(
+    `applications/${applicationId}`,
+    {
+      status: APPLICATION_STATUS.WITHDRAWN,
+      withdrawnAt: now,
+      updatedAt: now
+    }
+  );
 
   return true;
 }
 
 export function getApplicationStatusLabel(status) {
   return STATUS_LABELS[status] || "وضعیت نامشخص";
-}
+      }
+  
