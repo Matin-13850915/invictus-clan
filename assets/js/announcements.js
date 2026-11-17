@@ -8,12 +8,17 @@ import {
 } from "./database.js";
 
 import { normalizeText } from "./utils.js";
+import { getAdminUid } from "./auth.js";
 
 const PATH = "announcements";
 
 function requireUser(actor) {
-  if (!actor?.uid) {
-    throw new Error("ابتدا وارد حساب خود شوید.");
+  if (
+    !actor?.uid ||
+    typeof actor.uid !== "string" ||
+    actor.active !== true
+  ) {
+    throw new Error("حساب کاربری فعال و معتبر نیست.");
   }
 }
 
@@ -23,13 +28,23 @@ function requireStaff(actor) {
   if (!["admin", "leader"].includes(actor.role)) {
     throw new Error("فقط لیدر و ادمین اجازه مدیریت اطلاعیه‌ها را دارند.");
   }
+
+  if (
+    actor.role === "admin" &&
+    actor.uid !== getAdminUid()
+  ) {
+    throw new Error("دسترسی ادمین اصلی معتبر نیست.");
+  }
 }
 
 function requireAdmin(actor) {
   requireUser(actor);
 
-  if (actor.role !== "admin") {
-    throw new Error("حذف دائمی اطلاعیه فقط توسط ادمین مجاز است.");
+  if (
+    actor.role !== "admin" ||
+    actor.uid !== getAdminUid()
+  ) {
+    throw new Error("این عملیات فقط برای ادمین اصلی مجاز است.");
   }
 }
 
@@ -51,7 +66,11 @@ function cleanText(value, maxLength) {
 }
 
 function validateAnnouncement(data) {
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
+  if (
+    !data ||
+    typeof data !== "object" ||
+    Array.isArray(data)
+  ) {
     throw new Error("اطلاعات اطلاعیه معتبر نیست.");
   }
 
@@ -92,7 +111,7 @@ export async function createAnnouncement(data, actor) {
   const content = validateAnnouncement(data);
   const now = Date.now();
 
-  return await createRecord(PATH, {
+  return createRecord(PATH, {
     ...content,
     pinned: false,
     archived: false,
@@ -117,12 +136,13 @@ export async function getAnnouncements(options = {}) {
   }
 
   const includeArchived = options.includeArchived === true;
-
   const announcements = await getAllRecords(PATH);
 
   return announcements
     .filter(item =>
-      includeArchived || item.archived !== true
+      item &&
+      typeof item === "object" &&
+      (includeArchived || item.archived !== true)
     )
     .map(normalizeAnnouncement)
     .sort((a, b) => {
@@ -159,11 +179,12 @@ export async function editAnnouncement(id, data, actor) {
   }
 
   const content = validateAnnouncement(data);
+  const now = Date.now();
 
   await updateData(`${PATH}/${id}`, {
     ...content,
     updatedBy: actor.uid,
-    updatedAt: Date.now()
+    updatedAt: now
   });
 
   return true;
@@ -208,13 +229,15 @@ export async function archiveAnnouncement(id, actor) {
     throw new Error("این اطلاعیه قبلاً آرشیو شده است.");
   }
 
+  const now = Date.now();
+
   await updateData(`${PATH}/${id}`, {
     archived: true,
     pinned: false,
     archivedBy: actor.uid,
-    archivedAt: Date.now(),
+    archivedAt: now,
     updatedBy: actor.uid,
-    updatedAt: Date.now()
+    updatedAt: now
   });
 
   return true;
@@ -235,18 +258,20 @@ export async function restoreAnnouncement(id, actor) {
     throw new Error("این اطلاعیه در آرشیو نیست.");
   }
 
+  const now = Date.now();
+
   await updateData(`${PATH}/${id}`, {
     archived: false,
     restoredBy: actor.uid,
-    restoredAt: Date.now(),
+    restoredAt: now,
     updatedBy: actor.uid,
-    updatedAt: Date.now()
+    updatedAt: now
   });
 
   return true;
 }
 
-// حذف دائمی اطلاعیه - فقط ادمین
+// حذف دائمی اطلاعیه - فقط ادمین اصلی
 export async function removeAnnouncement(id, actor) {
   requireAdmin(actor);
   validateId(id);
@@ -267,3 +292,4 @@ export async function removeAnnouncement(id, actor) {
 
   return true;
     }
+                                          
