@@ -1,4 +1,3 @@
-
 import {
   createRecord,
   readData,
@@ -74,7 +73,6 @@ async function requireAvailableRoom(roomId, user) {
   }
 }
 
-// دریافت اتاق‌های قابل مشاهده
 export async function getChatRooms(user) {
   requireUser(user);
 
@@ -122,7 +120,6 @@ export async function getChatRooms(user) {
   return rooms;
 }
 
-// ایجاد اتاق سفارشی
 export async function createChatRoom(data, actor) {
   requireStaff(actor);
 
@@ -143,18 +140,15 @@ export async function createChatRoom(data, actor) {
     throw new Error("توضیحات اتاق حداکثر ۳۰۰ حرف است.");
   }
 
-  const id = await createRecord(`${CHAT_PATH}/rooms`, {
+  return createRecord(`${CHAT_PATH}/rooms`, {
     title,
     description,
     active: true,
     createdBy: actor.uid,
     createdAt: Date.now()
   });
-
-  return id;
 }
 
-// دریافت پیام‌ها
 export async function getMessages(roomId, user) {
   requireUser(user);
   await requireAvailableRoom(roomId, user);
@@ -177,14 +171,13 @@ export async function getMessages(roomId, user) {
       message.deleted !== true
     )
     .map(([id, message]) => ({
-      id,
       ...message,
+      id,
       createdAt: Number(message.createdAt) || 0
     }))
     .sort((a, b) => a.createdAt - b.createdAt);
 }
 
-// ارسال پیام
 export async function sendMessage(roomId, text, user) {
   requireUser(user);
   await requireAvailableRoom(roomId, user);
@@ -205,7 +198,6 @@ export async function sendMessage(roomId, text, user) {
   );
 }
 
-// ویرایش پیام خود در مهلت ۱۵ دقیقه
 export async function editMessage(
   roomId,
   messageId,
@@ -246,7 +238,6 @@ export async function editMessage(
   return true;
 }
 
-// حذف ظاهری پیام خود؛ نگهداری حداقل فراداده
 export async function deleteOwnMessage(
   roomId,
   messageId,
@@ -278,7 +269,6 @@ export async function deleteOwnMessage(
   return true;
 }
 
-// حذف ظاهری پیام توسط مدیریت
 export async function deleteAnyMessage(
   roomId,
   messageId,
@@ -305,7 +295,6 @@ export async function deleteAnyMessage(
   return true;
 }
 
-// غیرفعال کردن اتاق
 export async function deactivateChatRoom(roomId, actor) {
   requireStaff(actor);
   validateRoomId(roomId);
@@ -330,7 +319,6 @@ export async function deactivateChatRoom(roomId, actor) {
   return true;
 }
 
-// فعال‌سازی مجدد اتاق
 export async function activateChatRoom(roomId, actor) {
   requireStaff(actor);
   validateRoomId(roomId);
@@ -355,7 +343,6 @@ export async function activateChatRoom(roomId, actor) {
   return true;
 }
 
-// حذف منطقی اتاق
 export async function deleteChatRoom(roomId, actor) {
   requireStaff(actor);
   validateRoomId(roomId);
@@ -380,5 +367,4 @@ export async function deleteChatRoom(roomId, actor) {
   });
 
   return true;
-      }
-    
+    }
