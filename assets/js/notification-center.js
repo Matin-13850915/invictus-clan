@@ -82,7 +82,6 @@ function validateLink(value) {
 
   const link = value.trim();
 
-  // فقط مسیر داخلی سایت یا لینک HTTPS مجاز است.
   if (
     !link.startsWith("/") &&
     !/^https:\/\/[^\s]+$/i.test(link)
@@ -98,17 +97,26 @@ function validateLink(value) {
 }
 
 function safeArray(value) {
-  return Array.isArray(value) ? value : [];
+  if (Array.isArray(value)) return value;
+
+  if (value && typeof value === "object") {
+    return Object.entries(value).map(([id, item]) => ({
+      id,
+      ...item
+    }));
+  }
+
+  return [];
 }
 
 function sortNewest(items) {
   return [...items].sort(
-    (a, b) => (Number(b.createdAt) || 0) -
+    (a, b) =>
+      (Number(b.createdAt) || 0) -
       (Number(a.createdAt) || 0)
   );
 }
 
-// ارسال اعلان مستقیم توسط مدیریت
 export async function createUserNotification(data, actor) {
   requireStaff(actor);
 
@@ -146,7 +154,6 @@ export async function createUserNotification(data, actor) {
   };
 }
 
-// دریافت اعلان‌های خود کاربر
 export async function getMyNotifications(actor, limit = 50) {
   requireUser(actor);
 
@@ -168,7 +175,6 @@ export async function getMyNotifications(actor, limit = 50) {
   ).slice(0, limit);
 }
 
-// تعداد اعلان‌های خوانده‌نشده
 export async function getUnreadNotificationCount(actor) {
   const notifications = await getMyNotifications(actor, 100);
 
@@ -177,7 +183,6 @@ export async function getUnreadNotificationCount(actor) {
   ).length;
 }
 
-// خوانده‌شده کردن یک اعلان
 export async function markNotificationAsRead(id, actor) {
   requireUser(actor);
   validateId(id);
@@ -205,12 +210,13 @@ export async function markNotificationAsRead(id, actor) {
   return true;
 }
 
-// خوانده‌شده کردن همه اعلان‌های خوانده‌نشده
 export async function markAllNotificationsAsRead(actor) {
   requireUser(actor);
 
   const notifications = await getMyNotifications(actor, 100);
-  const unread = notifications.filter(item => item.read !== true);
+  const unread = notifications.filter(
+    item => item.read !== true
+  );
 
   for (const notification of unread) {
     await updateRecord(
@@ -225,7 +231,6 @@ export async function markAllNotificationsAsRead(actor) {
   return unread.length;
 }
 
-// حذف ظاهری اعلان توسط صاحب آن
 export async function deleteMyNotification(id, actor) {
   requireUser(actor);
   validateId(id);
@@ -250,7 +255,6 @@ export async function deleteMyNotification(id, actor) {
   return true;
 }
 
-// بایگانی اعلان‌های قدیمی
 export async function archiveOldNotifications(days, actor) {
   requireUser(actor);
 
@@ -284,8 +288,7 @@ export async function archiveOldNotifications(days, actor) {
   return oldItems.length;
 }
 
-// دریافت اعلان‌های قابل نمایش
 export async function getVisibleNotifications(actor) {
   return getMyNotifications(actor, 100);
-       }
-                                                 
+      }
+    
