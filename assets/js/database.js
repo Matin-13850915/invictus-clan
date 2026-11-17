@@ -20,7 +20,8 @@ function validatePath(path) {
     !path.trim() ||
     path.includes("//") ||
     path.startsWith("/") ||
-    path.endsWith("/")
+    path.endsWith("/") ||
+    path.split("/").some(part => part === "." || part === "..")
   ) {
     throw new Error("مسیر دیتابیس معتبر نیست.");
   }
@@ -39,7 +40,11 @@ export async function writeData(path, value) {
 }
 
 export async function updateData(path, values) {
-  if (!values || typeof values !== "object" || Array.isArray(values)) {
+  if (
+    !values ||
+    typeof values !== "object" ||
+    Array.isArray(values)
+  ) {
     throw new Error("اطلاعات ارسالی معتبر نیست.");
   }
 
@@ -53,6 +58,10 @@ export async function deleteData(path) {
 }
 
 export async function createRecord(path, value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("اطلاعات رکورد معتبر نیست.");
+  }
+
   const newRecord = push(ref(db, validatePath(path)));
 
   await set(newRecord, {
@@ -63,7 +72,39 @@ export async function createRecord(path, value) {
   return newRecord.key;
 }
 
+export async function getRecord(path) {
+  const data = await readData(path);
+
+  if (data === null) return null;
+
+  if (typeof data !== "object" || Array.isArray(data)) {
+    return data;
+  }
+
+  return {
+    ...data,
+    id: data.id || path.split("/").pop()
+  };
+}
+
+export async function getAllRecords(path) {
+  const data = await readData(path);
+
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    return [];
+  }
+
+  return Object.entries(data).map(([id, item]) => ({
+    ...(item && typeof item === "object" ? item : { value: item }),
+    id
+  }));
+}
+
 export async function findByField(path, field, value) {
+  if (typeof field !== "string" || !field.trim()) {
+    throw new Error("نام فیلد معتبر نیست.");
+  }
+
   const recordsQuery = query(
     ref(db, validatePath(path)),
     orderByChild(field),
@@ -72,7 +113,12 @@ export async function findByField(path, field, value) {
 
   const snapshot = await get(recordsQuery);
 
-  return snapshot.exists() ? snapshot.val() : {};
+  if (!snapshot.exists()) return [];
+
+  return Object.entries(snapshot.val()).map(([id, item]) => ({
+    ...item,
+    id
+  }));
 }
 
 export function listenToData(path, callback, onError = () => {}) {
@@ -82,9 +128,9 @@ export function listenToData(path, callback, onError = () => {}) {
 
   return onValue(
     ref(db, validatePath(path)),
-    snapshot => callback(
-      snapshot.exists() ? snapshot.val() : null
-    ),
+    snapshot => {
+      callback(snapshot.exists() ? snapshot.val() : null);
+    },
     error => onError(error)
   );
 }
@@ -100,6 +146,7 @@ export async function changeNumberAtomically(path, amount) {
       const current = Number(currentValue || 0);
 
       if (!Number.isFinite(current)) return;
+
       return current + amount;
     }
   );
@@ -109,4 +156,4 @@ export async function changeNumberAtomically(path, amount) {
   }
 
   return result.snapshot.val();
-}
+    }
