@@ -1,11 +1,10 @@
 
 import {
   createRecord,
-  getRecord,
   getAllRecords
 } from "./database.js";
 
-import { createId } from "./utils.js";
+import { createId, normalizeText } from "./utils.js";
 
 const ACTIVITY_PATH = "memberActivity";
 
@@ -20,8 +19,11 @@ const VALID_ACTIVITY_TYPES = [
 ];
 
 function requireUser(actor) {
-  if (!actor?.uid) {
-    throw new Error("ابتدا وارد حساب خود شوید.");
+  if (
+    !actor?.uid ||
+    actor.active !== true
+  ) {
+    throw new Error("برای این عملیات باید عضو فعال باشید.");
   }
 }
 
@@ -33,13 +35,35 @@ function requireStaff(actor) {
   }
 }
 
+function validateUid(uid) {
+  if (
+    typeof uid !== "string" ||
+    !uid.trim() ||
+    uid.length > 128 ||
+    /[.#$/\[\]]/.test(uid)
+  ) {
+    throw new Error("شناسه عضو معتبر نیست.");
+  }
+}
+
 function validateType(type) {
   if (!VALID_ACTIVITY_TYPES.includes(type)) {
     throw new Error("نوع فعالیت معتبر نیست.");
   }
 }
 
-// ثبت فعالیت یک عضو
+function safeArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function sortNewest(items) {
+  return [...items].sort(
+    (a, b) => (Number(b.createdAt) || 0) -
+      (Number(a.createdAt) || 0)
+  );
+}
+
+// ثبت فعالیت عضو
 export async function recordMemberActivity(
   uid,
   type,
@@ -48,37 +72,56 @@ export async function recordMemberActivity(
   actor
 ) {
   requireStaff(actor);
+  validateUid(uid);
   validateType(type);
 
-  if (typeof uid !== "string" || !uid.trim()) {
-    throw new Error("شناسه عضو معتبر نیست.");
+  if (typeof description !== "string") {
+    throw new Error("توضیحات فعالیت معتبر نیست.");
+  }
+
+  const cleanDescription = normalizeText(description).trim();
+
+  if (
+    !cleanDescription ||
+    cleanDescription.length > 500
+  ) {
+    throw new Error("توضیحات باید بین ۱ تا ۵۰۰ کاراکتر باشد.");
   }
 
   if (
-    typeof description !== "string" ||
-    description.trim().length > 500
+    referenceId !== undefined &&
+    referenceId !== null &&
+    (
+      typeof referenceId !== "string" ||
+      referenceId.length > 128 ||
+      /[.#$/\[\]]/.test(referenceId)
+    )
   ) {
-    throw new Error("توضیحات فعالیت معتبر نیست.");
+    throw new Error("شناسه مرجع معتبر نیست.");
   }
 
   const activity = {
     id: createId(),
     uid,
     type,
-    description: description.trim(),
+    description: cleanDescription,
     referenceId: referenceId || null,
     createdAt: Date.now(),
     createdBy: actor.uid
   };
 
-  await createRecord(ACTIVITY_PATH, activity);
+  const recordId = await createRecord(ACTIVITY_PATH, activity);
 
-  return activity;
+  return {
+    ...activity,
+    recordId
+  };
 }
 
-// دریافت فعالیت‌های یک عضو
+// فعالیت‌های یک عضو؛ فقط خود عضو یا مدیریت
 export async function getMemberActivity(uid, actor) {
   requireUser(actor);
+  validateUid(uid);
 
   const isOwner = actor.uid === uid;
   const isStaff = ["admin", "leader"].includes(actor.role);
@@ -87,22 +130,30 @@ export async function getMemberActivity(uid, actor) {
     throw new Error("اجازه مشاهده سوابق این عضو را ندارید.");
   }
 
-  const activities = await getAllRecords(ACTIVITY_PATH);
+  const activities = safeArray(
+    await getAllRecords(ACTIVITY_PATH)
+  );
 
-  return activities
-    .filter(item => item.uid === uid)
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  return sortNewest(
+    activities.filter(item => item?.uid === uid)
+  );
 }
 
-// دریافت آمار کلی اعضا
+// آمار کلی فعالیت اعضا
 export async function getMemberActivityStats(actor) {
   requireStaff(actor);
 
-  const activities = await getAllRecords(ACTIVITY_PATH);
+  const activities = safeArray(
+    await getAllRecords(ACTIVITY_PATH)
+  );
 
   const stats = {};
 
   for (const activity of activities) {
+    if (!activity || typeof activity.uid !== "string") {
+      continue;
+    }
+
     if (!stats[activity.uid]) {
       stats[activity.uid] = {
         uid: activity.uid,
@@ -111,6 +162,7 @@ export async function getMemberActivityStats(actor) {
         wins: 0,
         losses: 0,
         tournaments: 0,
+        tournamentWins: 0,
         teamActivities: 0,
         badges: 0
       };
@@ -137,6 +189,10 @@ export async function getMemberActivityStats(actor) {
         item.tournaments++;
         break;
 
+      case "tournament_win":
+        item.tournamentWins++;
+        break;
+
       case "team_activity":
         item.teamActivities++;
         break;
@@ -152,36 +208,39 @@ export async function getMemberActivityStats(actor) {
   );
 }
 
-// دریافت فعالیت‌های اخیر کلن
+// فعالیت‌های اخیر کلن
 export async function getRecentClanActivity(actor, limit = 30) {
   requireStaff(actor);
 
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
-    throw new Error("تعداد نتایج معتبر نیست.");
+    throw new Error("تعداد نتایج باید بین ۱ تا ۱۰۰ باشد.");
   }
 
-  const activities = await getAllRecords(ACTIVITY_PATH);
+  const activities = safeArray(
+    await getAllRecords(ACTIVITY_PATH)
+  );
 
-  return activities
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))
-    .slice(0, limit);
+  return sortNewest(activities).slice(0, limit);
 }
 
-// دریافت فعالیت‌های یک نوع مشخص
+// فعالیت‌ها بر اساس نوع
 export async function getActivitiesByType(type, actor) {
   requireStaff(actor);
   validateType(type);
 
-  const activities = await getAllRecords(ACTIVITY_PATH);
+  const activities = safeArray(
+    await getAllRecords(ACTIVITY_PATH)
+  );
 
-  return activities
-    .filter(item => item.type === type)
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  return sortNewest(
+    activities.filter(item => item?.type === type)
+  );
 }
 
-// دریافت تعداد مشارکت جنگی یک عضو
+// آمار مشارکت جنگی عضو
 export async function getMemberWarParticipation(uid, actor) {
   requireUser(actor);
+  validateUid(uid);
 
   const isOwner = actor.uid === uid;
   const isStaff = ["admin", "leader"].includes(actor.role);
@@ -190,11 +249,17 @@ export async function getMemberWarParticipation(uid, actor) {
     throw new Error("اجازه مشاهده این آمار را ندارید.");
   }
 
-  const activities = await getAllRecords(ACTIVITY_PATH);
+  const activities = safeArray(
+    await getAllRecords(ACTIVITY_PATH)
+  );
 
   const memberActivities = activities.filter(item =>
-    item.uid === uid &&
-    ["war_participation", "war_win", "war_loss"].includes(item.type)
+    item?.uid === uid &&
+    [
+      "war_participation",
+      "war_win",
+      "war_loss"
+    ].includes(item.type)
   );
 
   return {
@@ -210,4 +275,4 @@ export async function getMemberWarParticipation(uid, actor) {
       item => item.type === "war_loss"
     ).length
   };
-}
+    }
