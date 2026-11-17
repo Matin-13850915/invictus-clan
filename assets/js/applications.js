@@ -1,13 +1,12 @@
 
 import {
   createRecord,
-  readData,
+  getRecord,
+  getAllRecords,
   updateData
 } from "./database.js";
 
-import {
-  normalizeText
-} from "./utils.js";
+import { normalizeText } from "./utils.js";
 
 import {
   validEmail,
@@ -21,8 +20,10 @@ const APPLICATION_PATH = "applications";
 const VALID_STATUSES = [
   "pending",
   "awaiting_tester",
+  "awaiting_test",
   "testing",
   "test_completed",
+  "awaiting_leader",
   "retest_requested",
   "accepted",
   "rejected",
@@ -30,26 +31,54 @@ const VALID_STATUSES = [
   "expired"
 ];
 
-export async function submitApplication(data) {
-  if (!data || typeof data !== "object") {
+const TERMINAL_STATUSES = [
+  "accepted",
+  "rejected",
+  "withdrawn",
+  "expired"
+];
+
+function clean(value, max = 300) {
+  return normalizeText(String(value ?? "").trim()).slice(0, max);
+}
+
+function assertId(id, label = "شناسه درخواست") {
+  if (
+    typeof id !== "string" ||
+    !id.trim() ||
+    /[.#$/\[\]]/.test(id)
+  ) {
+    throw new Error(`${label} معتبر نیست.`);
+  }
+}
+
+function requireLeader(actor) {
+  if (
+    !actor?.uid ||
+    !["admin", "leader"].includes(actor.role)
+  ) {
+    throw new Error("فقط لیدر یا ادمین اجازه این عملیات را دارد.");
+  }
+}
+
+function validateApplication(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
     throw new Error("اطلاعات درخواست معتبر نیست.");
   }
 
   const application = {
-    realName: normalizeText(data.realName),
-    email: normalizeText(data.email).toLowerCase(),
-    gameName: normalizeText(data.gameName),
+    realName: clean(data.realName, 70),
+    email: clean(data.email, 120).toLowerCase(),
+    gameName: clean(data.gameName, 40),
     gameLevel: Number(data.gameLevel),
-    contactType: data.contactType,
-    contactValue: normalizeText(data.contactValue),
-    applicationType: data.applicationType,
-    mpRank: normalizeText(data.mpRank),
-    brRank: normalizeText(data.brRank),
-    status: "pending",
-    assignedTesterUid: null,
-    leaderNote: "",
-    createdAt: Date.now(),
-    updatedAt: Date.now()
+    contactType: String(data.contactType || "").toLowerCase(),
+    contactValue: clean(data.contactValue, 100),
+    applicationType: String(data.applicationType || "").toUpperCase(),
+    mpRank: clean(data.mpRank, 40),
+    brRank: clean(data.brRank, 40),
+    telegram: clean(data.telegram, 80),
+    rubika: clean(data.rubika, 80),
+    description: clean(data.description, 1000)
   };
 
   if (!validTextLength(application.realName, 2, 70)) {
@@ -101,63 +130,117 @@ export async function submitApplication(data) {
     throw new Error("رنک هر دو بخش را وارد کنید.");
   }
 
-  const id = await createRecord(
-    APPLICATION_PATH,
-    application
+  return application;
+}
+
+export async function submitApplication(data) {
+  const application = validateApplication(data);
+  const existing = await getAllRecords(APPLICATION_PATH);
+
+  const duplicate = existing.some(item =>
+    item.email?.toLowerCase() === application.email &&
+    !TERMINAL_STATUSES.includes(item.status)
   );
+
+  if (duplicate) {
+    throw new Error("با این ایمیل یک درخواست فعال ثبت شده است.");
+  }
+
+  const now = Date.now();
+
+  const id = await createRecord(APPLICATION_PATH, {
+    ...application,
+    uid: null,
+    status: "pending",
+    assignedTesterUid: null,
+    assignedSpecialty: null,
+    testResult: null,
+    testNote: "",
+    leaderNote: "",
+    internalNote: "",
+    createdAt: now,
+    updatedAt: now
+  });
 
   return {
     id,
-    status: application.status
+    status: "pending"
   };
 }
 
 export async function getApplication(applicationId) {
-  if (!applicationId) {
-    throw new Error("شناسه درخواست معتبر نیست.");
-  }
+  assertId(applicationId);
 
-  return await readData(
+  const application = await getRecord(
     `${APPLICATION_PATH}/${applicationId}`
   );
+
+  if (!application) {
+    throw new Error("درخواست پیدا نشد.");
+  }
+
+  return {
+    id: applicationId,
+    ...application
+  };
 }
 
-export async function getAllApplications() {
-  const data = await readData(APPLICATION_PATH);
+export async function getAllApplications(actor) {
+  requireLeader(actor);
 
-  if (!data) return [];
+  const applications = await getAllRecords(APPLICATION_PATH);
 
-  return Object.entries(data)
-    .map(([id, application]) => ({
-      id,
-      ...application
+  return applications
+    .map(item => ({
+      ...item,
+      id: item.id
     }))
-    .sort((a, b) => b.createdAt - a.createdAt);
+    .sort((a, b) =>
+      (b.createdAt || 0) - (a.createdAt || 0)
+    );
 }
 
 export async function updateApplicationStatus(
   applicationId,
   status,
-  reviewerUid,
+  actor,
   note = ""
 ) {
-  if (!applicationId || !reviewerUid) {
-    throw new Error("اطلاعات بررسی درخواست کامل نیست.");
-  }
+  requireLeader(actor);
+  assertId(applicationId);
 
   if (!VALID_STATUSES.includes(status)) {
     throw new Error("وضعیت درخواست معتبر نیست.");
   }
 
-  await updateData(
-    `${APPLICATION_PATH}/${applicationId}`,
-    {
-      status,
-      leaderNote: normalizeText(note),
-      reviewedBy: reviewerUid,
-      updatedAt: Date.now()
-    }
+  const application = await getRecord(
+    `${APPLICATION_PATH}/${applicationId}`
   );
+
+  if (!application) {
+    throw new Error("درخواست پیدا نشد.");
+  }
+
+  if (TERMINAL_STATUSES.includes(application.status)) {
+    throw new Error("درخواست نهایی شده و قابل تغییر نیست.");
+  }
+
+  if (
+    status === "accepted" &&
+    !["awaiting_leader", "pending"].includes(application.status)
+  ) {
+    throw new Error("این درخواست هنوز آماده تصمیم نهایی نیست.");
+  }
+
+  const now = Date.now();
+
+  await updateData(`${APPLICATION_PATH}/${applicationId}`, {
+    status,
+    leaderNote: clean(note, 1000),
+    reviewedBy: actor.uid,
+    reviewedAt: now,
+    updatedAt: now
+  });
 
   return true;
 }
@@ -165,22 +248,58 @@ export async function updateApplicationStatus(
 export async function assignTester(
   applicationId,
   testerUid,
-  leaderUid
+  specialty,
+  actor
 ) {
-  if (!applicationId || !testerUid || !leaderUid) {
-    throw new Error("اطلاعات تخصیص تستر کامل نیست.");
+  requireLeader(actor);
+  assertId(applicationId);
+  assertId(testerUid, "شناسه تستر");
+
+  if (!["MP", "BR"].includes(specialty)) {
+    throw new Error("تخصص تستر باید MP یا BR باشد.");
   }
 
-  await updateData(
-    `${APPLICATION_PATH}/${applicationId}`,
-    {
-      assignedTesterUid: testerUid,
-      status: "awaiting_tester",
-      assignedBy: leaderUid,
-      updatedAt: Date.now()
-    }
+  const application = await getRecord(
+    `${APPLICATION_PATH}/${applicationId}`
   );
 
+  if (!application) {
+    throw new Error("درخواست پیدا نشد.");
+  }
+
+  if (
+    !["pending", "awaiting_tester", "retest_requested"].includes(
+      application.status
+    )
+  ) {
+    throw new Error("وضعیت فعلی درخواست اجازه تخصیص تستر نمی‌دهد.");
+  }
+
+  if (
+    specialty === "MP" &&
+    !["MP", "BOTH"].includes(application.applicationType)
+  ) {
+    throw new Error("این درخواست با تخصص MP سازگار نیست.");
+  }
+
+  if (
+    specialty === "BR" &&
+    !["BR", "BOTH"].includes(application.applicationType)
+  ) {
+    throw new Error("این درخواست با تخصص BR سازگار نیست.");
+  }
+
+  const now = Date.now();
+
+  await updateData(`${APPLICATION_PATH}/${applicationId}`, {
+    assignedTesterUid: testerUid,
+    assignedSpecialty: specialty,
+    assignedBy: actor.uid,
+    assignedAt: now,
+    status: "awaiting_test",
+    updatedAt: now
+  });
+
   return true;
-}
-  
+    }
+    
