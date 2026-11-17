@@ -82,12 +82,12 @@ export async function renderMembers(container, user) {
     throw new Error("محل نمایش اعضا معتبر نیست.");
   }
 
-  if (!user?.uid) {
+  if (!user?.uid || user.active !== true) {
     container.replaceChildren(
       createElement(
         "section",
         "card error-state",
-        "برای مشاهده اعضا ابتدا وارد حساب شوید."
+        "برای مشاهده اعضا ابتدا وارد حساب فعال شوید."
       )
     );
 
@@ -259,5 +259,4 @@ export async function renderMembers(container, user) {
 
     container.replaceChildren(errorCard);
   }
-    }
-      
+}
