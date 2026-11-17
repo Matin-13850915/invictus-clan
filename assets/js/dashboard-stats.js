@@ -1,11 +1,10 @@
 
-import {
-  getAllRecords
-} from "./database.js";
+import { getAllRecords } from "./database.js";
 
 function requireStaff(actor) {
   if (
     !actor?.uid ||
+    actor.active !== true ||
     !["admin", "leader"].includes(actor.role)
   ) {
     throw new Error("دسترسی به آمار مدیریتی ندارید.");
@@ -14,6 +13,14 @@ function requireStaff(actor) {
 
 function countBy(items, field, value) {
   return items.filter(item => item?.[field] === value).length;
+}
+
+function countWhere(items, predicate) {
+  return items.filter(predicate).length;
+}
+
+function safeArray(value) {
+  return Array.isArray(value) ? value : [];
 }
 
 export async function getDashboardStats(actor) {
@@ -27,7 +34,10 @@ export async function getDashboardStats(actor) {
     tournaments,
     tickets,
     rewards,
-    teams
+    teams,
+    seasons,
+    badges,
+    messages
   ] = await Promise.all([
     getAllRecords("users"),
     getAllRecords("applications"),
@@ -36,66 +46,160 @@ export async function getDashboardStats(actor) {
     getAllRecords("tournaments"),
     getAllRecords("tickets"),
     getAllRecords("rewards"),
-    getAllRecords("teams")
+    getAllRecords("teams"),
+    getAllRecords("seasons"),
+    getAllRecords("badges"),
+    getAllRecords("chats/messages")
   ]);
 
-  const activeUsers = users.filter(
-    user => user.active === true
+  const userList = safeArray(users);
+  const applicationList = safeArray(applications);
+  const warList = safeArray(wars);
+  const announcementList = safeArray(announcements);
+  const tournamentList = safeArray(tournaments);
+  const ticketList = safeArray(tickets);
+  const rewardList = safeArray(rewards);
+  const teamList = safeArray(teams);
+  const seasonList = safeArray(seasons);
+  const badgeList = safeArray(badges);
+  const messageList = safeArray(messages);
+
+  const activeUsers = userList.filter(
+    user => user?.active === true
+  );
+
+  const applicationStatuses = [
+    "pending",
+    "awaiting_tester",
+    "awaiting_test",
+    "testing",
+    "test_completed",
+    "awaiting_leader",
+    "retest_requested",
+    "accepted",
+    "rejected",
+    "withdrawn",
+    "expired"
+  ];
+
+  const applicationCounts = Object.fromEntries(
+    applicationStatuses.map(status => [
+      status,
+      countBy(applicationList, "status", status)
+    ])
+  );
+
+  const completedWars = warList.filter(
+    war => war?.status === "completed"
+  );
+
+  const wins = countBy(completedWars, "result", "win");
+  const losses = countBy(completedWars, "result", "loss");
+  const draws = countBy(completedWars, "result", "draw");
+
+  const openTicketStatuses = [
+    "open",
+    "in_progress",
+    "waiting_for_user"
+  ];
+
+  const openTickets = countWhere(
+    ticketList,
+    ticket => openTicketStatuses.includes(ticket?.status)
   );
 
   return {
     members: {
-      total: users.length,
+      total: userList.length,
       active: activeUsers.length,
-      inactive: users.length - activeUsers.length
+      inactive: userList.length - activeUsers.length
     },
 
     applications: {
-      total: applications.length,
-      pending: countBy(applications, "status", "pending"),
-      accepted: countBy(applications, "status", "accepted"),
-      rejected: countBy(applications, "status", "rejected")
+      total: applicationList.length,
+      pending: applicationCounts.pending,
+      accepted: applicationCounts.accepted,
+      rejected: applicationCounts.rejected,
+      statuses: applicationCounts
     },
 
     wars: {
-      total: wars.length,
-      upcoming: countBy(wars, "status", "upcoming"),
-      completed: countBy(wars, "status", "completed")
+      total: warList.length,
+      upcoming: countBy(warList, "status", "upcoming"),
+      completed: completedWars.length,
+      wins,
+      losses,
+      draws
     },
 
     announcements: {
-      total: announcements.length,
-      active: announcements.filter(
-        item => item.archived !== true
-      ).length
+      total: announcementList.length,
+      active: countWhere(
+        announcementList,
+        item => item?.archived !== true &&
+          item?.active !== false
+      ),
+      archived: countBy(announcementList, "archived", true)
     },
 
     tournaments: {
-      total: tournaments.length,
-      active: tournaments.filter(
-        item => ["open", "in_progress"].includes(item.status)
-      ).length
+      total: tournamentList.length,
+      active: countWhere(
+        tournamentList,
+        item => ["open", "in_progress"].includes(item?.status)
+      ),
+      completed: countBy(tournamentList, "status", "completed")
     },
 
     tickets: {
-      total: tickets.length,
-      open: countBy(tickets, "status", "open")
+      total: ticketList.length,
+      open: openTickets,
+      resolved: countBy(ticketList, "status", "resolved"),
+      closed: countBy(ticketList, "status", "closed")
     },
 
     rewards: {
-      total: rewards.length,
-      active: rewards.filter(
-        item => item.active === true
-      ).length
+      total: rewardList.length,
+      active: countBy(rewardList, "active", true),
+      inactive: countBy(rewardList, "active", false)
     },
 
     teams: {
-      total: teams.length,
-      active: teams.filter(
-        item => item.active !== false
-      ).length
+      total: teamList.length,
+      active: countWhere(
+        teamList,
+        item => item?.active !== false
+      )
+    },
+
+    seasons: {
+      total: seasonList.length,
+      active: countWhere(
+        seasonList,
+        item => ["active", "in_progress"].includes(item?.status)
+      )
+    },
+
+    badges: {
+      total: badgeList.length,
+      active: countWhere(
+        badgeList,
+        item => item?.active !== false
+      )
+    },
+
+    chat: {
+      roomsWithMessages: messageList.length,
+      messages: messageList.reduce(
+        (total, room) => total +
+          (room && typeof room === "object"
+            ? Object.keys(room).length
+            : 0),
+        0
+      )
     },
 
     generatedAt: Date.now()
   };
-                        }
+}
+  
