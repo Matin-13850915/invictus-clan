@@ -1,5 +1,9 @@
 
-import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+import {
+  initializeApp,
+  getApps,
+  getApp
+} from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
 
 import {
   getAuth,
@@ -8,7 +12,14 @@ import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signOut,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  createUserWithEmailAndPassword,
+  updatePassword,
+  updateProfile,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
+  deleteUser,
+  sendEmailVerification
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-auth.js";
 
 import {
@@ -21,9 +32,20 @@ import {
   remove,
   query,
   orderByChild,
+  orderByKey,
+  orderByValue,
   equalTo,
+  startAt,
+  endAt,
+  limitToFirst,
+  limitToLast,
   onValue,
-  runTransaction
+  off,
+  runTransaction,
+  child,
+  serverTimestamp,
+  increment,
+  onDisconnect
 } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
 
 const firebaseConfig = {
@@ -37,16 +59,27 @@ const firebaseConfig = {
   measurementId: "G-LE9Y124DSY"
 };
 
-const app = initializeApp(firebaseConfig);
+const app = getApps().length
+  ? getApp()
+  : initializeApp(firebaseConfig);
+
 const auth = getAuth(app);
 const db = getDatabase(app);
 
-await setPersistence(auth, browserLocalPersistence);
+let persistenceReady = false;
+
+try {
+  await setPersistence(auth, browserLocalPersistence);
+  persistenceReady = true;
+} catch (error) {
+  console.error("Firebase persistence error:", error);
+}
 
 export {
   app,
   auth,
   db,
+
   ref,
   get,
   set,
@@ -54,12 +87,35 @@ export {
   push,
   remove,
   query,
+  child,
+
   orderByChild,
+  orderByKey,
+  orderByValue,
   equalTo,
+  startAt,
+  endAt,
+  limitToFirst,
+  limitToLast,
+
   onValue,
+  off,
   runTransaction,
+  serverTimestamp,
+  increment,
+  onDisconnect,
+
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signOut,
-  sendPasswordResetEmail
+  sendPasswordResetEmail,
+  createUserWithEmailAndPassword,
+  updatePassword,
+  updateProfile,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
+  deleteUser,
+  sendEmailVerification,
+
+  persistenceReady
 };
