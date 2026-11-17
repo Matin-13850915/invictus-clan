@@ -6,26 +6,36 @@ import {
 
 function el(tag, className = "", text = "") {
   const node = document.createElement(tag);
+
   if (className) node.className = className;
+
   if (text !== undefined && text !== null) {
     node.textContent = String(text);
   }
+
   return node;
 }
 
 function formatDate(value) {
   if (!value) return "ثبت نشده";
+
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "نامشخص";
+
+  if (Number.isNaN(date.getTime())) {
+    return "نامشخص";
+  }
+
   return date.toLocaleString("fa-IR");
 }
 
 function createInfo(label, value) {
   const item = el("div", "application-info-item");
+
   item.append(
     el("small", "", label),
     el("span", "", value || "ثبت نشده")
   );
+
   return item;
 }
 
@@ -33,6 +43,7 @@ function createApplicationCard(application) {
   const card = el("article", "card application-card");
 
   const header = el("div", "application-card-header");
+
   const title = el(
     "h3",
     "",
@@ -65,7 +76,9 @@ function createApplicationCard(application) {
   const tester = el(
     "p",
     "application-tester",
-    `تستر اختصاص‌یافته: ${application.assignedTesterUid || "هنوز تعیین نشده"}`
+    `تستر اختصاص‌یافته: ${
+      application.assignedTesterUid || "هنوز تعیین نشده"
+    }`
   );
 
   const testResult = el(
@@ -78,19 +91,31 @@ function createApplicationCard(application) {
 
   if (application.testNote) {
     card.append(
-      el("p", "application-note", `یادداشت تستر: ${application.testNote}`)
+      el(
+        "p",
+        "application-note",
+        `یادداشت تستر: ${application.testNote}`
+      )
     );
   }
 
   if (application.leaderNote) {
     card.append(
-      el("p", "application-note", `یادداشت لیدر: ${application.leaderNote}`)
+      el(
+        "p",
+        "application-note",
+        `یادداشت لیدر: ${application.leaderNote}`
+      )
     );
   }
 
   if (application.description) {
     card.append(
-      el("p", "application-description", application.description)
+      el(
+        "p",
+        "application-description",
+        application.description
+      )
     );
   }
 
@@ -102,22 +127,39 @@ export async function renderApplications(container, user) {
     throw new Error("محل نمایش درخواست‌ها معتبر نیست.");
   }
 
-  if (!user?.uid) {
+  if (
+    !user?.uid ||
+    user.active !== true ||
+    !["admin", "leader", "tester"].includes(user.role)
+  ) {
     container.replaceChildren(
-      el("section", "card error-state", "برای مشاهده درخواست‌ها وارد حساب شوید.")
+      el(
+        "section",
+        "card error-state",
+        "اجازه مشاهده درخواست‌های عضویت را ندارید."
+      )
     );
+
     return;
   }
 
   container.replaceChildren(
-    el("p", "loading-state", "در حال دریافت درخواست‌های عضویت...")
+    el(
+      "p",
+      "loading-state",
+      "در حال دریافت درخواست‌های عضویت..."
+    )
   );
 
   try {
     const toolbar = el("div", "applications-toolbar");
     const filter = document.createElement("select");
+
     filter.className = "application-filter";
-    filter.setAttribute("aria-label", "فیلتر وضعیت درخواست‌ها");
+    filter.setAttribute(
+      "aria-label",
+      "فیلتر وضعیت درخواست‌ها"
+    );
 
     const statuses = [
       ["", "همه درخواست‌ها"],
@@ -136,15 +178,17 @@ export async function renderApplications(container, user) {
 
     statuses.forEach(([value, label]) => {
       const option = document.createElement("option");
+
       option.value = value;
       option.textContent = label;
+
       filter.appendChild(option);
     });
 
     const count = el("p", "applications-count", "");
-    toolbar.append(filter, count);
-
     const list = el("div", "applications-list");
+
+    toolbar.append(filter, count);
 
     async function load(status = "") {
       list.replaceChildren(
@@ -157,31 +201,55 @@ export async function renderApplications(container, user) {
           status ? { status } : {}
         );
 
-        count.textContent = `تعداد درخواست‌ها: ${applications.length}`;
+        count.textContent =
+          `تعداد درخواست‌ها: ${applications.length}`;
+
         list.replaceChildren();
 
         if (!applications.length) {
           list.appendChild(
-            el("section", "card empty-state", "درخواستی برای نمایش وجود ندارد.")
+            el(
+              "section",
+              "card empty-state",
+              "درخواستی برای نمایش وجود ندارد."
+            )
           );
+
           return;
         }
 
         applications.forEach(application => {
-          list.appendChild(createApplicationCard(application));
+          list.appendChild(
+            createApplicationCard(application)
+          );
         });
+
       } catch (error) {
-        console.error("Applications loading failed:", error);
+        console.error(
+          "Applications loading failed:",
+          error
+        );
+
         list.replaceChildren(
-          el("section", "card error-state", "دریافت درخواست‌ها ناموفق بود.")
+          el(
+            "section",
+            "card error-state",
+            error.message || "دریافت درخواست‌ها ناموفق بود."
+          )
         );
       }
     }
 
-    filter.addEventListener("change", () => load(filter.value));
+    filter.addEventListener("change", () => {
+      load(filter.value);
+    });
 
     container.replaceChildren(
-      el("h2", "page-section-title", "مدیریت درخواست‌های عضویت"),
+      el(
+        "h2",
+        "page-section-title",
+        "مدیریت درخواست‌های عضویت"
+      ),
       toolbar,
       list
     );
@@ -194,11 +262,17 @@ export async function renderApplications(container, user) {
     const errorCard = el(
       "section",
       "card error-state",
-      "بارگذاری صفحه درخواست‌ها با خطا مواجه شد."
+      error.message || "بارگذاری صفحه درخواست‌ها با خطا مواجه شد."
     );
 
-    const retry = el("button", "secondary-button", "تلاش دوباره");
+    const retry = el(
+      "button",
+      "secondary-button",
+      "تلاش دوباره"
+    );
+
     retry.type = "button";
+
     retry.addEventListener("click", () => {
       renderApplications(container, user);
     });
@@ -206,5 +280,4 @@ export async function renderApplications(container, user) {
     errorCard.appendChild(retry);
     container.replaceChildren(errorCard);
   }
-    }
-  
+}
