@@ -292,5 +292,5 @@ export async function changeNumberAtomically(
   }
 
   return result.snapshot.val();
-    }
+  }
   
