@@ -27,8 +27,12 @@ const VALID_STATUSES = [
 ];
 
 function requireUser(actor) {
-  if (!actor?.uid) {
-    throw new Error("برای ثبت گزارش باید وارد حساب شوید.");
+  if (
+    !actor ||
+    typeof actor.uid !== "string" ||
+    !actor.uid.trim()
+  ) {
+    throw new Error("برای انجام این عملیات باید وارد حساب شوید.");
   }
 }
 
@@ -40,41 +44,70 @@ function requireStaff(actor) {
   }
 }
 
-function cleanText(value, maxLength) {
+function assertId(id, label = "شناسه گزارش") {
+  if (
+    typeof id !== "string" ||
+    !id.trim() ||
+    /[.#$/\[\]]/.test(id)
+  ) {
+    throw new Error(`${label} معتبر نیست.`);
+  }
+}
+
+function cleanText(value, maxLength, required = true) {
   if (typeof value !== "string") {
-    throw new Error("متن گزارش معتبر نیست.");
+    throw new Error("متن واردشده معتبر نیست.");
   }
 
   const result = value.trim();
 
-  if (!result || result.length > maxLength) {
-    throw new Error(`متن باید بین ۱ تا ${maxLength} کاراکتر باشد.`);
+  if (
+    (required && !result) ||
+    result.length > maxLength
+  ) {
+    throw new Error(
+      `متن باید ${required ? "بین ۱ تا" : "حداکثر"} ${maxLength} کاراکتر باشد.`
+    );
   }
 
   return result;
+}
+
+function validateReportData(data) {
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("اطلاعات گزارش معتبر نیست.");
+  }
+
+  if (!VALID_CATEGORIES.includes(data.category)) {
+    throw new Error("دسته‌بندی گزارش معتبر نیست.");
+  }
+
+  return {
+    title: cleanText(data.title, 100),
+    description: cleanText(data.description, 3000),
+    category: data.category,
+    page: cleanText(data.page ?? "", 100, false)
+  };
 }
 
 // ثبت گزارش خطا
 export async function createBugReport(data, actor) {
   requireUser(actor);
 
-  if (!VALID_CATEGORIES.includes(data.category)) {
-    throw new Error("دسته‌بندی گزارش معتبر نیست.");
-  }
+  const input = validateReportData(data);
+  const now = Date.now();
 
   const report = {
     id: createId(),
     uid: actor.uid,
-    reporterName: actor.displayName || actor.gameName || "عضو کلن",
-    title: cleanText(data.title, 100),
-    description: cleanText(data.description, 3000),
-    category: data.category,
-    page: typeof data.page === "string"
-      ? data.page.slice(0, 100)
-      : "",
+    reporterName: cleanText(
+      actor.displayName || actor.gameName || "عضو کلن",
+      80
+    ),
+    ...input,
     status: "open",
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
+    createdAt: now,
+    updatedAt: now,
     assignedTo: null,
     staffReply: ""
   };
@@ -92,23 +125,26 @@ export async function getMyBugReports(actor) {
 
   return reports
     .filter(report => report.uid === actor.uid)
-    .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    .sort((a, b) =>
+      (b.createdAt || 0) - (a.createdAt || 0)
+    );
 }
 
-// دریافت همه گزارش‌ها برای مدیریت
+// دریافت تمام گزارش‌ها
 export async function getAllBugReports(actor) {
   requireStaff(actor);
 
   const reports = await getAllRecords(REPORTS_PATH);
 
-  return reports.sort(
-    (a, b) => (b.createdAt || 0) - (a.createdAt || 0)
+  return reports.sort((a, b) =>
+    (b.createdAt || 0) - (a.createdAt || 0)
   );
 }
 
 // دریافت یک گزارش
 export async function getBugReport(reportId, actor) {
   requireUser(actor);
+  assertId(reportId);
 
   const report = await getRecord(
     `${REPORTS_PATH}/${reportId}`
@@ -135,6 +171,7 @@ export async function updateBugReportStatus(
   actor
 ) {
   requireStaff(actor);
+  assertId(reportId);
 
   if (!VALID_STATUSES.includes(status)) {
     throw new Error("وضعیت انتخاب‌شده معتبر نیست.");
@@ -148,9 +185,15 @@ export async function updateBugReportStatus(
     throw new Error("گزارش پیدا نشد.");
   }
 
+  if (report.status === "closed" && status !== "closed") {
+    throw new Error("گزارش بسته‌شده قابل بازگشایی از این مسیر نیست.");
+  }
+
+  const now = Date.now();
+
   await updateRecord(`${REPORTS_PATH}/${reportId}`, {
     status,
-    updatedAt: Date.now(),
+    updatedAt: now,
     updatedBy: actor.uid
   });
 
@@ -164,6 +207,7 @@ export async function replyToBugReport(
   actor
 ) {
   requireStaff(actor);
+  assertId(reportId);
 
   const text = cleanText(reply, 2000);
 
@@ -175,25 +219,32 @@ export async function replyToBugReport(
     throw new Error("گزارش پیدا نشد.");
   }
 
+  const now = Date.now();
+
   await updateRecord(`${REPORTS_PATH}/${reportId}`, {
     staffReply: text,
     repliedBy: actor.uid,
-    repliedAt: Date.now(),
-    updatedAt: Date.now()
+    repliedAt: now,
+    updatedAt: now
   });
 
   return true;
 }
 
-// ارجاع گزارش به یک مسئول
+// ارجاع گزارش به مسئول
 export async function assignBugReport(
   reportId,
   staffUid,
   actor
 ) {
   requireStaff(actor);
+  assertId(reportId);
 
-  if (typeof staffUid !== "string" || !staffUid.trim()) {
+  if (
+    typeof staffUid !== "string" ||
+    !staffUid.trim() ||
+    /[.#$/\[\]]/.test(staffUid)
+  ) {
     throw new Error("شناسه مسئول معتبر نیست.");
   }
 
@@ -205,11 +256,13 @@ export async function assignBugReport(
     throw new Error("گزارش پیدا نشد.");
   }
 
+  const now = Date.now();
+
   await updateRecord(`${REPORTS_PATH}/${reportId}`, {
-    assignedTo: staffUid,
+    assignedTo: staffUid.trim(),
     assignedBy: actor.uid,
-    assignedAt: Date.now(),
-    updatedAt: Date.now()
+    assignedAt: now,
+    updatedAt: now
   });
 
   return true;
