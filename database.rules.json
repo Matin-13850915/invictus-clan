@@ -1,0 +1,310 @@
+{
+  "rules": {
+    ".read": "false",
+    ".write": "false",
+    "roles": {
+      ".read": "auth != null",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && auth.uid == 'kxaAoKgm5WUxqsV9hoAk75XQuL43' && root.child('roles').child(auth.uid).child('role').val() == 'admin'",
+      "$uid": {
+        ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && auth.uid == 'kxaAoKgm5WUxqsV9hoAk75XQuL43' && root.child('roles').child(auth.uid).child('role').val() == 'admin' || (auth != null && auth.uid == $uid && !data.exists() && newData.child('role').val() == 'member' && newData.child('active').val() == true && root.child('approvedApplications').child(newData.child('applicationKey').val()).child('email').val() == auth.token.email && root.child('approvedApplications').child(newData.child('applicationKey').val()).child('status').val() == 'accepted' && (root.child('approvedApplications').child(newData.child('applicationKey').val()).child('claimedUid').val() == null || root.child('approvedApplications').child(newData.child('applicationKey').val()).child('claimedUid').val() == auth.uid))",
+        ".validate": "newData.hasChildren(['role','active','status']) && newData.child('role').val().matches(/^(admin|leader|tester|member)$/) && newData.child('active').isBoolean()"
+      }
+    },
+    "users": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')",
+      ".write": "false",
+      "$uid": {
+        ".write": "auth != null && auth.uid == 'kxaAoKgm5WUxqsV9hoAk75XQuL43' && root.child('roles').child(auth.uid).child('role').val() == 'admin' || (auth != null && auth.uid == $uid && root.child('roles').child(auth.uid).child('active').val() == true && newData.child('uid').val() == $uid && newData.child('email').val() == auth.token.email) || (auth != null && auth.uid == $uid && newData.child('uid').val() == $uid && newData.child('email').val() == auth.token.email && root.child('approvedApplications').child(newData.child('applicationKey').val()).child('email').val() == auth.token.email && root.child('approvedApplications').child(newData.child('applicationKey').val()).child('status').val() == 'accepted')",
+        ".read": "auth != null && (auth.uid == $uid || auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader'))"
+      }
+    },
+    "approvedApplications": {
+      "$key": {
+        ".read": "auth != null && auth.token.email != null && auth.token.email == data.child('email').val()",
+        ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || (auth != null && auth.token.email != null && auth.token.email == data.child('email').val() && data.child('status').val() == 'accepted' && data.child('claimedUid').val() == null && newData.child('claimedUid').val() == auth.uid && newData.child('email').val() == data.child('email').val() && newData.child('applicationId').val() == data.child('applicationId').val() && newData.child('status').val() == data.child('status').val() && newData.child('gameName').val() == data.child('gameName').val() && newData.child('realName').val() == data.child('realName').val() && newData.child('gameLevel').val() == data.child('gameLevel').val() && newData.child('telegram').val() == data.child('telegram').val() && newData.child('rubika').val() == data.child('rubika').val() && newData.child('approvedBy').val() == data.child('approvedBy').val() && newData.child('approvedAt').val() == data.child('approvedAt').val())"
+      }
+    },
+    "applications": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || (auth != null && root.child('roles').child(auth.uid).child('role').val() == 'tester' && root.child('roles').child(auth.uid).child('active').val() == true && query.orderByChild == 'assignedTesterUid' && query.equalTo == auth.uid) || (auth != null && root.child('roles').child(auth.uid).child('active').val() == true && query.orderByChild == 'uid' && query.equalTo == auth.uid)",
+      ".indexOn": [
+        "uid",
+        "assignedTesterUid"
+      ],
+      "$id": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || (auth != null && root.child('roles').child(auth.uid).child('role').val() == 'tester' && root.child('roles').child(auth.uid).child('active').val() == true && data.child('assignedTesterUid').val() == auth.uid) || (auth != null && data.child('uid').val() == auth.uid)",
+        ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || (auth == null && !data.exists() && newData.child('uid').val() == null && newData.child('status').val() == 'pending' && newData.child('email').isString()) || (auth != null && root.child('roles').child(auth.uid).child('role').val() == 'tester' && root.child('roles').child(auth.uid).child('active').val() == true && data.child('assignedTesterUid').val() == auth.uid && newData.child('assignedTesterUid').val() == auth.uid && newData.child('assignedSpecialty').val() == data.child('assignedSpecialty').val() && newData.child('status').val().matches(/^(testing|awaiting_leader)$/) && newData.child('uid').val() == data.child('uid').val() && newData.child('email').val() == data.child('email').val() && newData.child('realName').val() == data.child('realName').val() && newData.child('gameName').val() == data.child('gameName').val() && newData.child('gameLevel').val() == data.child('gameLevel').val() && newData.child('applicationType').val() == data.child('applicationType').val() && newData.child('leaderDecision').val() == data.child('leaderDecision').val() && newData.child('reviewedBy').val() == data.child('reviewedBy').val() && newData.child('mpRank').val() == data.child('mpRank').val() && newData.child('brRank').val() == data.child('brRank').val() && newData.child('contactType').val() == data.child('contactType').val() && newData.child('contactValue').val() == data.child('contactValue').val() && newData.child('telegram').val() == data.child('telegram').val() && newData.child('rubika').val() == data.child('rubika').val() && newData.child('description').val() == data.child('description').val() && newData.child('createdAt').val() == data.child('createdAt').val() && newData.child('assignedBy').val() == data.child('assignedBy').val() && newData.child('assignedAt').val() == data.child('assignedAt').val() && newData.child('leaderNote').val() == data.child('leaderNote').val() && newData.child('reviewedAt').val() == data.child('reviewedAt').val() && newData.child('internalNote').val() == data.child('internalNote').val()) || (auth != null && data.child('uid').val() == auth.uid && newData.child('uid').val() == auth.uid && newData.child('status').val() == 'withdrawn' && newData.child('email').val() == data.child('email').val() && newData.child('gameName').val() == data.child('gameName').val() && newData.child('applicationType').val() == data.child('applicationType').val()) || (auth != null && !data.exists() && newData.child('uid').val() == auth.uid && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('role').val() == 'member')"
+      }
+    },
+    "announcements": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended'",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')"
+    },
+    "wars": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended'",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')"
+    },
+    "rankings": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended'",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')"
+    },
+    "teams": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended'",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')"
+    },
+    "tournaments": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended'",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')",
+      "$id": {
+        "participants": {
+          "$uid": {
+            ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && ((auth.uid == $uid && root.child('tournaments').child($id).child('status').val() == 'registration') || (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader'))"
+          }
+        }
+      }
+    },
+    "seasons": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended'",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')"
+    },
+    "clanRules": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended'",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')"
+    },
+    "clanSettings": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended'",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')"
+    },
+    "rewards": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended'",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')"
+    },
+    "rankingHistory": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')"
+    },
+    "auditLogs": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')"
+    },
+    "userManagementHistory": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && auth.uid == 'kxaAoKgm5WUxqsV9hoAk75XQuL43' && root.child('roles').child(auth.uid).child('role').val() == 'admin'"
+    },
+    "systemBackups": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && auth.uid == 'kxaAoKgm5WUxqsV9hoAk75XQuL43' && root.child('roles').child(auth.uid).child('role').val() == 'admin'"
+    },
+    "siteContentHistory": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && auth.uid == 'kxaAoKgm5WUxqsV9hoAk75XQuL43' && root.child('roles').child(auth.uid).child('role').val() == 'admin'"
+    },
+    "siteSettingsHistory": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && auth.uid == 'kxaAoKgm5WUxqsV9hoAk75XQuL43' && root.child('roles').child(auth.uid).child('role').val() == 'admin'"
+    },
+    "badgeHistory": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')"
+    },
+    "moderationHistory": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')"
+    },
+    "badges": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended'",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')"
+    },
+    "memberBadges": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended'",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')"
+    },
+    "activityLogs": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')"
+    },
+    "memberActivity": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || (auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && query.orderByChild == 'uid' && query.equalTo == auth.uid)",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')",
+      ".indexOn": [
+        "uid"
+      ],
+      "$id": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || (auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && data.child('uid').val() == auth.uid)",
+        ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')"
+      }
+    },
+    "chats": {
+      "rooms": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended'",
+        ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')"
+      },
+      "messages": {
+        "$roomId": {
+          ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended'",
+          "$messageId": {
+            ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (newData.child('uid').val() == auth.uid || (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader'))"
+          }
+        }
+      }
+    },
+    "privateMessages": {
+      "conversations": {
+        "$conversationId": {
+          ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (!data.exists() || data.child('participants').child(auth.uid).val() == true)",
+          ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (data.child('participants').child(auth.uid).val() == true || newData.child('participants').child(auth.uid).val() == true)",
+          "participants": {
+            ".validate": "newData.hasChild(auth.uid) && newData.child(auth.uid).val() == true && newData.numChildren() == 2 && (!data.exists() || newData.val() == data.val())"
+          }
+        }
+      },
+      "messages": {
+        "$conversationId": {
+          ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && root.child('privateMessages').child('conversations').child($conversationId).child('participants').child(auth.uid).val() == true",
+          "$messageId": {
+            ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && root.child('privateMessages').child('conversations').child($conversationId).child('participants').child(auth.uid).val() == true && (newData.child('senderUid').val() == auth.uid || (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader'))"
+          }
+        }
+      }
+    },
+    "notifications": {
+      "$uid": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && auth.uid == $uid",
+        ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (auth.uid == $uid || (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader'))"
+      }
+    },
+    "tickets": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || (auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && query.orderByChild == 'ownerUid' && query.equalTo == auth.uid) || (auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && root.child('roles').child(auth.uid).child('role').val() == 'tester' && query.orderByChild == 'assignedTesterUid' && query.equalTo == auth.uid)",
+      ".indexOn": [
+        "ownerUid",
+        "assignedTesterUid"
+      ],
+      "$id": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (data.child('ownerUid').val() == auth.uid || (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || (root.child('roles').child(auth.uid).child('role').val() == 'tester' && data.child('category').val() == 'test' && data.child('assignedTesterUid').val() == auth.uid))",
+        ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && ((root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || (!data.exists() && newData.child('ownerUid').val() == auth.uid) || (data.child('ownerUid').val() == auth.uid && newData.child('ownerUid').val() == auth.uid && newData.child('status').val() == data.child('status').val() && newData.child('assignedTesterUid').val() == data.child('assignedTesterUid').val() && newData.child('category').val() == data.child('category').val() && newData.child('title').val() == data.child('title').val() && newData.child('body').val() == data.child('body').val()) || (root.child('roles').child(auth.uid).child('role').val() == 'tester' && data.child('assignedTesterUid').val() == auth.uid && data.child('category').val() == 'test' && newData.child('assignedTesterUid').val() == auth.uid && newData.child('status').val() == data.child('status').val() && newData.child('ownerUid').val() == data.child('ownerUid').val() && newData.child('title').val() == data.child('title').val() && newData.child('body').val() == data.child('body').val()))"
+      }
+    },
+    "rewardRequests": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || (auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && query.orderByChild == 'memberUid' && query.equalTo == auth.uid)",
+      ".indexOn": [
+        "memberUid"
+      ],
+      "$id": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && ((root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || data.child('memberUid').val() == auth.uid)",
+        ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && ((root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || (!data.exists() && newData.child('memberUid').val() == auth.uid))"
+      }
+    },
+    "pointBalances": {
+      "$uid": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (auth.uid == $uid || (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader'))",
+        ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')"
+      }
+    },
+    "tournamentRequests": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')",
+      ".indexOn": [
+        "requestedBy"
+      ],
+      "$id": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && ((root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || data.child('requestedBy').val() == auth.uid)",
+        ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && ((root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || (!data.exists() && newData.child('requestedBy').val() == auth.uid))"
+      }
+    },
+    "warApplications": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || (auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && query.orderByChild == 'memberUid' && query.equalTo == auth.uid)",
+      ".indexOn": [
+        "warId",
+        "memberUid"
+      ],
+      "$id": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && ((root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || data.child('memberUid').val() == auth.uid)",
+        ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && ((root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || (!data.exists() && newData.child('memberUid').val() == auth.uid) || (data.child('memberUid').val() == auth.uid && newData.child('memberUid').val() == auth.uid && newData.child('warId').val() == data.child('warId').val() && newData.child('status').val() == 'withdrawn'))"
+      }
+    },
+    "forum": {
+      "topics": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended'",
+        ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')",
+        "$topicId": {
+          ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || (auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && data.exists() && newData.child('postCount').isNumber() && data.child('postCount').isNumber() && (newData.child('postCount').val() == data.child('postCount').val()+1 || newData.child('postCount').val() == data.child('postCount').val()-1) && newData.child('title').val() == data.child('title').val() && newData.child('description').val() == data.child('description').val() && newData.child('createdBy').val() == data.child('createdBy').val() && newData.child('active').val() == data.child('active').val() && newData.child('pinned').val() == data.child('pinned').val() && newData.child('archived').val() == data.child('archived').val() && newData.child('deleted').val() == data.child('deleted').val())"
+        }
+      },
+      "posts": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended'",
+        "$postId": {
+          ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && ((root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || (!data.exists() && newData.child('authorUid').val() == auth.uid) || (data.child('authorUid').val() == auth.uid && newData.child('authorUid').val() == auth.uid && newData.child('topicId').val() == data.child('topicId').val()))"
+        }
+      }
+    },
+    "bugReports": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || (auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && query.orderByChild == 'uid' && query.equalTo == auth.uid)",
+      ".indexOn": [
+        "uid"
+      ],
+      "$id": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && ((root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || data.child('uid').val() == auth.uid)",
+        ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && ((root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || (!data.exists() && newData.child('uid').val() == auth.uid))"
+      }
+    },
+    "accountRequests": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || (auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && query.orderByChild == 'uid' && query.equalTo == auth.uid)",
+      ".indexOn": [
+        "uid"
+      ],
+      "$id": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && ((root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || data.child('uid').val() == auth.uid)",
+        ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && ((root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader') || (!data.exists() && newData.child('uid').val() == auth.uid))"
+      }
+    },
+    "profiles": {
+      "$uid": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (auth.uid == $uid || (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader'))",
+        ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (auth.uid == $uid || (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader'))"
+      }
+    },
+    "userPreferences": {
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid",
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    },
+    "siteContent": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended'",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && auth.uid == 'kxaAoKgm5WUxqsV9hoAk75XQuL43' && root.child('roles').child(auth.uid).child('role').val() == 'admin'"
+    },
+    "siteSettings": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended'",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && auth.uid == 'kxaAoKgm5WUxqsV9hoAk75XQuL43' && root.child('roles').child(auth.uid).child('role').val() == 'admin'"
+    },
+    "system": {
+      "version": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended'",
+        ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && auth.uid == 'kxaAoKgm5WUxqsV9hoAk75XQuL43' && root.child('roles').child(auth.uid).child('role').val() == 'admin'"
+      },
+      "versionHistory": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && auth.uid == 'kxaAoKgm5WUxqsV9hoAk75XQuL43' && root.child('roles').child(auth.uid).child('role').val() == 'admin'",
+        ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && auth.uid == 'kxaAoKgm5WUxqsV9hoAk75XQuL43' && root.child('roles').child(auth.uid).child('role').val() == 'admin'"
+      }
+    },
+    "presence": {
+      ".read": "false",
+      ".write": "false"
+    },
+    "userSessions": {
+      "$uid": {
+        ".read": "auth != null && auth.uid == $uid && root.child('roles').child(auth.uid).child('active').val() == true",
+        ".write": "auth != null && auth.uid == $uid && root.child('roles').child(auth.uid).child('active').val() == true"
+      }
+    },
+    "restrictions": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')",
+      ".write": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended' && (root.child('roles').child(auth.uid).child('role').val() == 'admin' || root.child('roles').child(auth.uid).child('role').val() == 'leader')"
+    },
+    "publicProfiles": {
+      ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended'",
+      "$uid": {
+        ".read": "auth != null && root.child('roles').child(auth.uid).child('active').val() == true && root.child('roles').child(auth.uid).child('status').val() != 'banned' && root.child('roles').child(auth.uid).child('status').val() != 'suspended'",
+        ".write": "auth != null && auth.uid == 'kxaAoKgm5WUxqsV9hoAk75XQuL43' && root.child('roles').child(auth.uid).child('role').val() == 'admin' || (auth != null && auth.uid == $uid && newData.child('uid').val() == $uid && root.child('roles').child(auth.uid).child('active').val() == true) || (auth != null && auth.uid == $uid && newData.child('uid').val() == $uid && root.child('approvedApplications').child(newData.child('applicationKey').val()).child('email').val() == auth.token.email && root.child('approvedApplications').child(newData.child('applicationKey').val()).child('status').val() == 'accepted')"
+      }
+    }
+  }
+}
